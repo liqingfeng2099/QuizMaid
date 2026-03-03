@@ -8,6 +8,7 @@ CREATE TABLE `userAccount` (
                                `emailVerified` tinyint DEFAULT 0 COMMENT '邮箱认证 0-未认证 1-已认证',
                                `oauthType` varchar(20) DEFAULT NULL COMMENT '第三方登录类型(gitee/github等)',
                                `oauthOpenid` varchar(100) DEFAULT NULL COMMENT '第三方openid',
+                               `role` varchar(10) NOT NULL DEFAULT 'user' COMMENT '用户角色：user-普通用户 admin-管理员',
                                `status` tinyint DEFAULT 1 COMMENT '账号状态 1-正常 0-禁用',
                                `answerNum` int DEFAULT 0 COMMENT '总做题数',
                                `correctNum` int DEFAULT 0 COMMENT '总做对题数',

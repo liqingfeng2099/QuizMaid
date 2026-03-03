@@ -56,6 +56,10 @@ public class User implements Serializable {
     private String email;
 
     /**
+     * 角色
+     */
+    private String role;
+    /**
      * 邮箱认证 0-未认证 1-已认证
      */
     @Column("emailVerified")
