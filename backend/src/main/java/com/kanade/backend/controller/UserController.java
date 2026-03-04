@@ -4,8 +4,10 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.lang.Dict;
 import cn.hutool.core.util.RandomUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.setting.yaml.YamlUtil;
 import com.kanade.backend.common.BaseResponse;
+import com.kanade.backend.common.DeleteRequest;
 import com.kanade.backend.common.ResultUtils;
 import com.kanade.backend.email.IEmailService;
 import com.kanade.backend.exception.BusinessException;
@@ -16,6 +18,7 @@ import com.kanade.backend.model.entity.User;
 import com.kanade.backend.model.vo.UserLoginVO;
 import com.kanade.backend.model.vo.UserVO;
 import com.kanade.backend.service.UserService;
+import com.mybatisflex.core.paginate.Page;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -24,6 +27,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -170,6 +174,72 @@ public class UserController {
         return ResultUtils.success(user.getId());
     }
 
+    @PostMapping("del/user")
+    @SaCheckRole("admin")
+    public BaseResponse<Boolean> deleteUser(@RequestBody DeleteRequest deleteRequest){
+        if (deleteRequest == null){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"request is null");
+        }
+        Long id = deleteRequest.getId();
+        boolean b = userService.removeById(id);
+        return ResultUtils.success(b);
+    }
+
+    // 修改admin
+    @PostMapping("/admin/update")
+    @SaCheckRole("admin")
+    public BaseResponse<UserVO> updateUserByAdmin(@RequestBody UserUpdateByAdminDTO userUpdateDTO){
+
+        Long id = userUpdateDTO.getId();
+        if (id == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户ID不能为空");
+        }
+
+        // ========== 核心：手动构建实体，只赋值有效值，空字符串直接忽略 ==========
+        User user = new User();
+        user.setId(id);
+
+        // 昵称：只处理非空、非空白字符串
+        String nickname = userUpdateDTO.getNickname();
+        if (nickname != null && !nickname.isBlank()) {
+            user.setNickname(nickname);
+        }
+
+        // 邮箱：只处理非空、非空白字符串
+        String email = userUpdateDTO.getEmail();
+        if (email != null && !email.isBlank()) {
+            user.setEmail(email);
+        }
+
+        // 角色：只处理非空、非空白字符串
+        String role = userUpdateDTO.getRole();
+        if (role != null && !role.isBlank()) {
+            user.setRole(role);
+        }
+
+        // 状态：只要不为null就更新
+        Integer status = userUpdateDTO.getStatus();
+        if (status != null) {
+            user.setStatus(status);
+        }
+
+        // 2. 无修改内容，直接返回
+        if (user.getNickname() == null && user.getEmail() == null
+                && user.getRole() == null && user.getStatus() == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "未修改任何内容");
+        }
+        // 3. 执行更新
+        boolean success = userService.updateById(user);
+        if (!success) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+
+        // 4. 查询最新用户信息，返回给前端
+        User newUser = userService.getById(id);
+        UserVO userVO = new UserVO();
+        BeanUtils.copyProperties(newUser, userVO);
+        return ResultUtils.success(userVO);
+    }
     // 根据id 获取用户
     @GetMapping("/get/user")
     @SaCheckRole("admin")
@@ -195,8 +265,25 @@ public class UserController {
         if (user == null){
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
-        userService.getUserVOById(user);
+        userService.getUserVO(user);
         return ResultUtils.success(user);
+    }
+    @PostMapping("/list/page/vo")
+    public BaseResponse<Page<UserVO>> listUserByPage(@RequestBody UserQueryDTO userQueryDTO){
+        log.info(String.valueOf(userQueryDTO));
+        if (userQueryDTO == null){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"userQueryDTO is null");
+        }
+
+        long pageNum = userQueryDTO.getPageNum();
+        long pageSize = userQueryDTO.getPageSize();
+
+        Page<User> page = userService.page(Page.of(pageNum, pageSize),userService.getQueryWrapper(userQueryDTO));
+        Page<UserVO> userVOPage = new Page<>(pageNum,pageSize,page.getTotalRow());
+        List<UserVO> userVOList = userService.getUserVOList(page.getRecords());
+        userVOPage.setRecords(userVOList);
+
+        return ResultUtils.success(userVOPage);
     }
 
 }
