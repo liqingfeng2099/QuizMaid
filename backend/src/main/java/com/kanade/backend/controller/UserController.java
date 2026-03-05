@@ -32,6 +32,8 @@ import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -336,6 +338,19 @@ public class UserController {
         long loginId = StpUtil.getLoginIdAsLong();
         boolean b = userService.userSignIn(loginId);
         return ResultUtils.success(b);
+    }
+
+    // 获取签到信息
+    @PostMapping("/signdata")
+    public BaseResponse<Map<LocalDate,Boolean>> getUserSignData(Integer year){
+        long loginId = StpUtil.getLoginIdAsLong();
+        List<Integer> userSignInData = userService.getUserSignInData(loginId, year);
+        Map<LocalDate,Boolean> data = new LinkedHashMap<>();
+        for (int i = 0; i < userSignInData.size(); i++) {
+            LocalDate date = LocalDate.ofYearDay(year, userSignInData.get(1));
+            data.put(date,true);
+        }
+        return ResultUtils.success(data);
     }
 }
 

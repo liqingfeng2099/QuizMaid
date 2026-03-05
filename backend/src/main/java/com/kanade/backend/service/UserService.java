@@ -11,9 +11,11 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
 import jakarta.servlet.http.HttpServletRequest;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import java.util.List;
+import java.util.Map;
 
 
 public interface UserService extends IService<User> {
@@ -41,4 +43,6 @@ public interface UserService extends IService<User> {
     User getByOauth(String github, String string);
 
     boolean userSignIn(long id);
+
+    List<Integer> getUserSignInData(long loginId, Integer year);
 }
