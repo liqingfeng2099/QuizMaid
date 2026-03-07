@@ -9,5 +9,5 @@ import com.kanade.backend.model.entity.Question;
  * @author kanade
  */
 public interface QuestionService extends IService<Question> {
-
+    Question addLabels(Question question);
 }

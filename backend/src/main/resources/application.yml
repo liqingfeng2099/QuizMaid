@@ -105,3 +105,13 @@ sa-token:
 #  client-id:
 #  client-secret:
 #  redirect-uri: http://localhost:8080/oauth/github/callback
+
+# AI
+#langchain4j:
+#  open-ai:
+#    chat-model:
+#      base-url: https://api.deepseek.com
+#      api-key: <Your API Key>
+#      model-name: deepseek-chat
+#      log-requests: true
+#      log-responses: true
