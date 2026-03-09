@@ -9,11 +9,11 @@ spring:
   profiles:
     active: local
   # MySQL ?????
-  datasource:
-    url: jdbc:mysql://localhost:3306/quizmaid?useSSL=false&serverTimezone=UTC&characterEncoding=utf8&allowPublicKeyRetrieval=true
-    username: root
-    password: 114514
-    driver-class-name: com.mysql.cj.jdbc.Driver
+#  datasource:
+#    url: jdbc:mysql://localhost:3306/quizmaid?useSSL=false&serverTimezone=UTC&characterEncoding=utf8&allowPublicKeyRetrieval=true
+#    username: root
+#    password: 114514
+#    driver-class-name: com.mysql.cj.jdbc.Driver
   application:
     name: QuizMaid
 #  mail:
