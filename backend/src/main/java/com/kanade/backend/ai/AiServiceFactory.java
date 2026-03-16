@@ -10,8 +10,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Lazy;
-
 @Configuration
 @Slf4j
 public class AiServiceFactory {
@@ -21,7 +19,6 @@ public class AiServiceFactory {
 
     // 2. 非静态注入，赋值给静态变量（解决Spring不支持静态字段注入）
     @Resource
-    @Lazy
     public void setChatModel(OpenAiChatModel chatModel) {
         staticChatModel = chatModel;
     }
@@ -48,7 +45,6 @@ public class AiServiceFactory {
     }
 
     @Bean
-    @Lazy
     public AiService createAiCodeGeneratorService() {
         return AiServices.create(AiService.class, staticChatModel);
     }

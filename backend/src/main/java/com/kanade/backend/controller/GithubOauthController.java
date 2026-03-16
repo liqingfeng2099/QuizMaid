@@ -16,8 +16,6 @@ import com.kanade.backend.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.core.env.Environment;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -32,31 +30,18 @@ import static com.kanade.backend.common.Constant.USER_LOGIN_STATE;
 @RequestMapping("/oauth")
 @Slf4j
 public class GithubOauthController {
+    @Value("${github.client-id}")
+    private String clientId;
+    @Value("${github.client-secret}")
+    private String clientSecret;
+    @Value("${github.redirect-uri}")
+    private String redirectUri;
     @Autowired
-    private Environment env;
-
-    @Autowired
-    private UserService userService;
-
-    // 在这里第一次用到时才获取配置，启动时不加载！
-    private String getClientId() {
-        return env.getRequiredProperty("github.client-id");
-    }
-
-    private String getClientSecret() {
-        return env.getRequiredProperty("github.client-secret");
-    }
-
-    private String getRedirectUri() {
-        return env.getRequiredProperty("github.redirect-uri");
-    }
+    UserService userService;
 
     // 1. 前端访问此接口：跳转到 GitHub 授权页 http://127.0.0.1:8080/api/oauth/github/login
     @GetMapping("/github/login")
     public BaseResponse<String> githubLogin() {
-        String clientId = getClientId();
-        String clientSecret = getClientSecret();
-        String redirectUri = getRedirectUri();
         String url = "https://github.com/login/oauth/authorize" +
                 "?client_id=" + clientId +
                 "&redirect_uri=" + redirectUri ;
@@ -66,11 +51,7 @@ public class GithubOauthController {
     // 2. GitHub 授权回调地址（自动执行，无需手动访问）
     @GetMapping("/github/callback")
     public BaseResponse<UserLoginVO> callback(@RequestParam String code) {
-
         try {
-            String clientId = getClientId();
-            String clientSecret = getClientSecret();
-            String redirectUri = getRedirectUri();
             // ========== 1. 获取 AccessToken ==========
             HashMap<String, Object> param = new HashMap<>();
             param.put("client_id", clientId);

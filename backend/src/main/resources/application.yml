@@ -1,6 +1,6 @@
 spring:
   main:
-    lazy-initialization: false
+    lazy-initialization: true
   # redis配置
   redis:
     database: 0

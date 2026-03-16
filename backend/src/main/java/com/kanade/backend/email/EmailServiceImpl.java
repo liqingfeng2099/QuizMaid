@@ -8,7 +8,6 @@ import jakarta.mail.internet.InternetAddress;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -24,7 +23,6 @@ public class EmailServiceImpl implements IEmailService {
 
 
     @Autowired
-    @Lazy
     private JavaMailSender javaMailSender;//注入邮件工具类
 
     @Override
