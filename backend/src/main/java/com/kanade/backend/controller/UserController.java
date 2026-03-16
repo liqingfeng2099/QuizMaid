@@ -56,7 +56,7 @@ public class UserController {
 
     @GetMapping("/")
     public BaseResponse<String> healthCheck() {
-        return ResultUtils.success("ok test  koko tttt check");
+        return ResultUtils.success("ok test  koko tttt  gg check");
 
     }
 
