@@ -11,6 +11,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseListLong = {
+    code?: number
+    data?: number[]
+    message?: string
+  }
+
   type BaseResponseListUserHeatMapVO = {
     code?: number
     data?: UserHeatMapVO[]
@@ -29,9 +35,27 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseMapObjectObject = {
+    code?: number
+    data?: Record<string, any>
+    message?: string
+  }
+
+  type BaseResponsePageQuestionVO = {
+    code?: number
+    data?: PageQuestionVO
+    message?: string
+  }
+
   type BaseResponsePageUserVO = {
     code?: number
     data?: PageUserVO
+    message?: string
+  }
+
+  type BaseResponseQuestionVO = {
+    code?: number
+    data?: QuestionVO
     message?: string
   }
 
@@ -72,6 +96,14 @@ declare namespace API {
     id?: number
   }
 
+  type getImportStatusParams = {
+    taskId: string
+  }
+
+  type getQuestionByIdParams = {
+    id: number
+  }
+
   type getSignInDaysParams = {
     userId: number
   }
@@ -88,6 +120,28 @@ declare namespace API {
     id: number
   }
 
+  type JSONConfig = {
+    keyComparator?: Record<string, any>
+    ignoreError?: boolean
+    ignoreCase?: boolean
+    dateFormat?: string
+    ignoreNullValue?: boolean
+    transientSupport?: boolean
+    stripTrailingZeros?: boolean
+    checkDuplicate?: boolean
+    writeLongAsString?: boolean
+    order?: boolean
+  }
+
+  type PageQuestionVO = {
+    records?: QuestionVO[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
   type PageUserVO = {
     records?: UserVO[]
     pageNumber?: number
@@ -95,6 +149,79 @@ declare namespace API {
     totalPage?: number
     totalRow?: number
     optimizeCountQuery?: boolean
+  }
+
+  type QuestionAddDTO = {
+    type?: number
+    subject?: string
+    chapter?: string
+    difficulty?: number
+    knowledgePoints?: string
+    tags?: string
+    content?: string
+    options?: string
+    answer?: string
+    analysis?: string
+    status?: number
+  }
+
+  type QuestionQueryDTO = {
+    pageNum?: number
+    pageSize?: number
+    sortField?: string
+    sortOrder?: string
+    id?: number
+    type?: number
+    subject?: string
+    chapter?: string
+    difficulty?: number
+    knowledgePoints?: string
+    tags?: string
+    content?: string
+    creatorId?: number
+    status?: number
+  }
+
+  type QuestionStatusDTO = {
+    id?: number
+    status?: number
+  }
+
+  type QuestionUpdateDTO = {
+    id?: number
+    type?: number
+    subject?: string
+    chapter?: string
+    difficulty?: number
+    knowledgePoints?: string
+    tags?: string
+    content?: string
+    options?: string
+    answer?: string
+    analysis?: string
+    status?: number
+  }
+
+  type QuestionVO = {
+    id?: number
+    questionMd5?: string
+    type?: number
+    subject?: string
+    chapter?: string
+    difficulty?: number
+    knowledgePoints?: string
+    tags?: string
+    content?: string
+    options?: string
+    answer?: string
+    analysis?: string
+    creatorId?: number
+    status?: number
+    correctCount?: number
+    totalCount?: number
+    accuracy?: number
+    createTime?: string
+    updateTime?: string
   }
 
   type ResetPasswordDTO = {

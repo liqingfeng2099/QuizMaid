@@ -30,7 +30,7 @@
         <UserOutlined />
         <span>个人中心</span>
       </a-menu-item>
-      <a-menu-item key="system">
+      <a-menu-item v-if="loginUserStore.loginUser?.role === 'admin'" key="system">
         <SettingOutlined />
         <span>系统管理</span>
       </a-menu-item>
@@ -39,8 +39,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useLoginUserStore } from '@/stores/loginUser'
 import {
   HomeOutlined,
   FileTextOutlined,
@@ -53,6 +54,7 @@ import {
 
 const router = useRouter()
 const route = useRoute()
+const loginUserStore = useLoginUserStore()
 
 const currentRoute = computed(() => {
   const path = route.path.replace('/', '')
@@ -62,6 +64,11 @@ const currentRoute = computed(() => {
 const handleMenuClick = ({ key }: { key: string }) => {
   router.push(`/${key}`)
 }
+
+// 确保在组件挂载时获取用户信息
+onMounted(async () => {
+  await loginUserStore.fetchLoginUser()
+})
 </script>
 
 <style scoped>

@@ -349,7 +349,7 @@ public class UserController {
         List<Integer> userSignInData = userService.getUserSignInData(loginId, year);
         Map<LocalDate,Boolean> data = new LinkedHashMap<>();
         for (int i = 0; i < userSignInData.size(); i++) {
-            LocalDate date = LocalDate.ofYearDay(year, userSignInData.get(1));
+            LocalDate date = LocalDate.ofYearDay(year, userSignInData.get(i));
             data.put(date,true);
         }
         return ResultUtils.success(data);

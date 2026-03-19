@@ -1,6 +1,7 @@
 package com.kanade.backend.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.json.JSONUtil;
@@ -11,18 +12,22 @@ import com.kanade.backend.exception.BusinessException;
 import com.kanade.backend.exception.ErrorCode;
 import com.kanade.backend.model.dto.*;
 import com.kanade.backend.model.entity.Question;
+import com.kanade.backend.model.entity.User;
 import com.kanade.backend.model.vo.QuestionVO;
 import com.kanade.backend.service.QuestionService;
 import com.mybatisflex.core.paginate.Page;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.tomcat.util.buf.ByteChunk;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import static com.kanade.backend.common.Constant.USER_LOGIN_STATE;
 
 @RestController
 @RequestMapping("/question")
@@ -32,6 +37,9 @@ public class QuestionController {
 
     @Autowired
     private QuestionService questionService;
+
+
+    // todo 管理员管理题目
 
     @PostMapping("/add")
     @SaCheckLogin
@@ -83,8 +91,10 @@ public class QuestionController {
         if (updateDTO.getId() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "试题ID不能为空");
         }
+        log.info("dto ", updateDTO);
         Question question = new Question();
         BeanUtils.copyProperties(updateDTO, question);
+        log.info("por ", question);
         boolean result = questionService.updateQuestion(question);
         return ResultUtils.success(result);
     }
@@ -95,6 +105,12 @@ public class QuestionController {
     public BaseResponse<Boolean> deleteQuestion(@RequestBody DeleteRequest deleteRequest) {
         if (deleteRequest.getId() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "试题ID不能为空");
+        }
+        User user =(User) StpUtil.getSession().get(USER_LOGIN_STATE);
+        Question byId = questionService.getById(deleteRequest.getId());
+
+        if (!user.getRole().equals("admin") && !user.getId().equals(byId.getCreatorId())){
+            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR,"无权访问");
         }
         boolean result = questionService.removeById(deleteRequest.getId());
         return ResultUtils.success(result);
@@ -119,10 +135,21 @@ public class QuestionController {
         return ResultUtils.success(vo);
     }
 
+    @PostMapping("/list/admin/page")
+    @SaCheckLogin
+    @Operation(summary = "分页查询试题")
+    @SaCheckRole("admin")
+    public BaseResponse<Page<QuestionVO>> listAllQuestionByPage(@RequestBody QuestionQueryDTO queryDTO) {
+        Page<QuestionVO> page = questionService.getQuestionPage(queryDTO);
+        return ResultUtils.success(page);
+    }
+
+    // todo 用户查看自己上传的题目
     @PostMapping("/list/page")
     @SaCheckLogin
     @Operation(summary = "分页查询试题")
     public BaseResponse<Page<QuestionVO>> listQuestionByPage(@RequestBody QuestionQueryDTO queryDTO) {
+        queryDTO.setCreatorId(StpUtil.getLoginIdAsLong());
         Page<QuestionVO> page = questionService.getQuestionPage(queryDTO);
         return ResultUtils.success(page);
     }
