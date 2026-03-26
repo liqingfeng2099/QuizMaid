@@ -5,6 +5,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseExamPaperVO = {
+    code?: number
+    data?: ExamPaperVO
+    message?: string
+  }
+
   type BaseResponseInteger = {
     code?: number
     data?: number
@@ -38,6 +44,12 @@ declare namespace API {
   type BaseResponseMapObjectObject = {
     code?: number
     data?: Record<string, any>
+    message?: string
+  }
+
+  type BaseResponsePageExamPaperVO = {
+    code?: number
+    data?: PageExamPaperVO
     message?: string
   }
 
@@ -96,6 +108,52 @@ declare namespace API {
     id?: number
   }
 
+  type ExamPaperAddDTO = {
+    paperName?: string
+    subject?: string
+    totalScore?: number
+    status?: number
+  }
+
+  type ExamPaperQueryDTO = {
+    pageNum?: number
+    pageSize?: number
+    sortField?: string
+    sortOrder?: string
+    paperName?: string
+    subject?: string
+    status?: number
+    creatorId?: number
+  }
+
+  type ExamPaperStatusDTO = {
+    id?: number
+    status?: number
+  }
+
+  type ExamPaperUpdateDTO = {
+    id?: number
+    paperName?: string
+    subject?: string
+    totalScore?: number
+  }
+
+  type ExamPaperVO = {
+    id?: number
+    paperName?: string
+    subject?: string
+    totalScore?: number
+    creatorId?: number
+    status?: number
+    createTime?: string
+    updateTime?: string
+    questions?: PaperQuestionVO[]
+  }
+
+  type getExamPaperByIdParams = {
+    id: number
+  }
+
   type getImportStatusParams = {
     taskId: string
   }
@@ -133,6 +191,15 @@ declare namespace API {
     order?: boolean
   }
 
+  type PageExamPaperVO = {
+    records?: ExamPaperVO[]
+    pageNumber?: number
+    pageSize?: number
+    totalPage?: number
+    totalRow?: number
+    optimizeCountQuery?: boolean
+  }
+
   type PageQuestionVO = {
     records?: QuestionVO[]
     pageNumber?: number
@@ -151,15 +218,37 @@ declare namespace API {
     optimizeCountQuery?: boolean
   }
 
+  type PaperQuestionAddDTO = {
+    paperId?: number
+    questionId?: number
+    questionScore?: number
+    sort?: number
+  }
+
+  type PaperQuestionUpdateDTO = {
+    id?: number
+    questionScore?: number
+    sort?: number
+  }
+
+  type PaperQuestionVO = {
+    id?: number
+    questionId?: number
+    questionContent?: string
+    questionScore?: number
+    sort?: number
+    type?: number
+  }
+
   type QuestionAddDTO = {
     type?: number
     subject?: string
     chapter?: string
     difficulty?: number
     knowledgePoints?: string
-    tags?: string
+    tags?: string[]
     content?: string
-    options?: string
+    options?: Record<string, any>[]
     answer?: string
     analysis?: string
     status?: number
