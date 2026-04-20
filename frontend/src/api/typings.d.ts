@@ -95,6 +95,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseAIPaperAssemblyResultVO = {
+    code?: number
+    data?: AIPaperAssemblyResultVO
+    message?: string
+  }
+
   type BindEmailDTO = {
     email?: string
     code?: string
@@ -136,6 +142,23 @@ declare namespace API {
     paperName?: string
     subject?: string
     totalScore?: number
+  }
+
+  type AIPaperAssemblyDTO = {
+    paperName?: string
+    subject?: string
+    chapter?: string
+    difficulty?: number
+    totalScore?: number
+    status?: number
+    userRequirement?: string
+  }
+
+  type AIPaperAssemblyResultVO = {
+    paperId?: number
+    questionIds?: number[]
+    totalQuestions?: number
+    actualTotalScore?: number
   }
 
   type ExamPaperVO = {

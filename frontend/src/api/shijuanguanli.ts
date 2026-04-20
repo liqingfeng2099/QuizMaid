@@ -84,3 +84,18 @@ export async function updateExamPaper(
     ...(options || {}),
   })
 }
+
+/** AI智能组卷 POST /examPaper/ai/assemble */
+export async function aiAssemblePaper(
+  body: API.AIPaperAssemblyDTO,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseAIPaperAssemblyResultVO>('/examPaper/ai/assemble', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}

@@ -44,6 +44,9 @@
         <a-button type="primary" @click="handleAdd">
           新增试卷
         </a-button>
+        <a-button type="primary" @click="handleAIPaperAssembly">
+          AI智能组卷
+        </a-button>
         <a-button
           danger
           @click="handleBatchDelete"
@@ -247,6 +250,62 @@
         </a-table>
       </div>
     </a-modal>
+
+    <!-- AI智能组卷弹窗 -->
+    <a-modal
+      v-model:open="aiAssemblyVisible"
+      title="AI智能组卷"
+      width="60%"
+      @ok="handleAIAssemblyOk"
+      @cancel="handleAIAssemblyCancel"
+      :confirmLoading="aiAssemblyLoading"
+    >
+      <a-form
+        ref="aiFormRef"
+        :model="aiFormState"
+        :label-col="{ span: 6 }"
+        :wrapper-col="{ span: 16 }"
+      >
+        <a-form-item label="试卷名称" name="paperName" :rules="[{ required: true, message: '请输入试卷名称' }]">
+          <a-input v-model:value="aiFormState.paperName" placeholder="请输入试卷名称" />
+        </a-form-item>
+        <a-form-item label="所属科目" name="subject">
+          <a-select v-model:value="aiFormState.subject" placeholder="请选择科目（可选）" allow-clear>
+            <a-select-option v-for="subject in subjectOptions" :key="subject" :value="subject">
+              {{ subject }}
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="章节" name="chapter">
+          <a-input v-model:value="aiFormState.chapter" placeholder="请输入章节（可选）" />
+        </a-form-item>
+        <a-form-item label="难度" name="difficulty">
+          <a-select v-model:value="aiFormState.difficulty" placeholder="请选择难度（可选）" allow-clear>
+            <a-select-option :value="1">简单</a-select-option>
+            <a-select-option :value="2">中等</a-select-option>
+            <a-select-option :value="3">困难</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="总分" name="totalScore">
+          <a-input-number v-model:value="aiFormState.totalScore" :min="0" :precision="0" style="width: 100%" placeholder="请输入总分（可选）" />
+        </a-form-item>
+        <a-form-item label="状态" name="status" :rules="[{ required: true, message: '请选择状态' }]">
+          <a-select v-model:value="aiFormState.status">
+            <a-select-option :value="0">草稿</a-select-option>
+            <a-select-option :value="1">已发布</a-select-option>
+            <a-select-option :value="2">已归档</a-select-option>
+            <a-select-option :value="3">已停用</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="组卷需求" name="userRequirement">
+          <a-textarea
+            v-model:value="aiFormState.userRequirement"
+            placeholder="请描述您的组卷需求，例如：侧重基础知识、题型分布均匀、难度适中等"
+            :rows="4"
+          />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
@@ -258,7 +317,8 @@ import {
   deleteExamPaper,
   listExamPaperByPage,
   updateExamPaper,
-  getExamPaperById
+  getExamPaperById,
+  aiAssemblePaper
 } from '@/api/shijuanguanli'
 import {
   addQuestionToPaper,
@@ -391,6 +451,21 @@ const availableQuestionsPagination = reactive({
   total: 0,
   showSizeChanger: true,
   showTotal: (total: number) => `共 ${total} 条`
+})
+
+// AI组卷相关状态
+const aiAssemblyVisible = ref(false)
+const aiAssemblyLoading = ref(false)
+const aiFormRef = ref<FormInstance>()
+
+const aiFormState = reactive({
+  paperName: '',
+  subject: undefined as string | undefined,
+  chapter: undefined as string | undefined,
+  difficulty: undefined as number | undefined,
+  totalScore: undefined as number | undefined,
+  status: 0,
+  userRequirement: ''
 })
 
 const getCurrentUser = () => {
@@ -820,6 +895,66 @@ const getQuestionTypeText = (type?: number) => {
     5: '简答题'
   }
   return textMap[type || 0] || '未知'
+}
+
+// AI组卷相关方法
+const handleAIPaperAssembly = () => {
+  aiAssemblyVisible.value = true
+  resetAIForm()
+}
+
+const handleAIAssemblyOk = async () => {
+  try {
+    await aiFormRef.value?.validate()
+    aiAssemblyLoading.value = true
+
+    const res = await aiAssemblePaper({
+      paperName: aiFormState.paperName,
+      subject: aiFormState.subject,
+      chapter: aiFormState.chapter,
+      difficulty: aiFormState.difficulty,
+      totalScore: aiFormState.totalScore,
+      status: aiFormState.status,
+      userRequirement: aiFormState.userRequirement
+    })
+
+    if (res.data.code === 0) {
+      message.success(`AI组卷成功！共选中${res.data.data?.totalQuestions}道题，总分${res.data.data?.actualTotalScore}分`)
+      aiAssemblyVisible.value = false
+      loadPaperList()
+      
+      // 自动打开试卷详情
+      if (res.data.data?.paperId) {
+        setTimeout(() => {
+          const paper = paperList.value.find(p => p.id === res.data.data?.paperId)
+          if (paper) {
+            handleManageQuestions(paper)
+          }
+        }, 500)
+      }
+    } else {
+      message.error('AI组卷失败：' + res.data.message)
+    }
+  } catch (error) {
+    console.error(error)
+  } finally {
+    aiAssemblyLoading.value = false
+  }
+}
+
+const handleAIAssemblyCancel = () => {
+  aiAssemblyVisible.value = false
+  resetAIForm()
+}
+
+const resetAIForm = () => {
+  aiFormState.paperName = ''
+  aiFormState.subject = undefined
+  aiFormState.chapter = undefined
+  aiFormState.difficulty = undefined
+  aiFormState.totalScore = undefined
+  aiFormState.status = 0
+  aiFormState.userRequirement = ''
 }
 </script>
 
