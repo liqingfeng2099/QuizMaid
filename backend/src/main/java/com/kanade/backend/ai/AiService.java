@@ -14,4 +14,7 @@ public interface AiService {
 
     @SystemMessage(fromResource = "prompt/judge.txt")
     String generateQuestionJudge(String userMessage);
+
+    @SystemMessage(fromResource = "prompt/paperAssembly.txt")
+    String generatePaperAssembly(String userMessage);
 }

@@ -6,11 +6,13 @@ import com.kanade.backend.common.DeleteRequest;
 import com.kanade.backend.common.ResultUtils;
 import com.kanade.backend.exception.BusinessException;
 import com.kanade.backend.exception.ErrorCode;
+import com.kanade.backend.model.dto.AIPaperAssemblyDTO;
 import com.kanade.backend.model.dto.ExamPaperAddDTO;
 import com.kanade.backend.model.dto.ExamPaperQueryDTO;
 import com.kanade.backend.model.dto.ExamPaperStatusDTO;
 import com.kanade.backend.model.dto.ExamPaperUpdateDTO;
 import com.kanade.backend.model.entity.ExamPaper;
+import com.kanade.backend.model.vo.AIPaperAssemblyResultVO;
 import com.kanade.backend.model.vo.ExamPaperVO;
 import com.kanade.backend.service.ExamPaperService;
 import com.mybatisflex.core.paginate.Page;
@@ -87,5 +89,14 @@ public class ExamPaperController {
     public BaseResponse<Page<ExamPaperVO>> listExamPaperByPage(@RequestBody ExamPaperQueryDTO queryDTO) {
         Page<ExamPaperVO> page = examPaperService.getExamPaperPage(queryDTO);
         return ResultUtils.success(page);
+    }
+
+    @PostMapping("/ai/assemble")
+    @SaCheckLogin // ← Sa-Token拦截器验证登录状态
+    @Operation(summary = "AI智能组卷")
+    public BaseResponse<AIPaperAssemblyResultVO> aiAssemblePaper(@RequestBody AIPaperAssemblyDTO assemblyDTO) {
+        // 调用Service层
+        AIPaperAssemblyResultVO result = examPaperService.aiAssemblePaper(assemblyDTO);
+        return ResultUtils.success(result);
     }
 }
