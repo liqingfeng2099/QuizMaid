@@ -43,6 +43,12 @@ public class Question implements Serializable {
     private String questionMd5;
 
     /**
+     * 复合MD5(题干+题型+选项+答案)，运行时计算，不持久化到数据库
+     */
+    @Column(ignore = true)
+    private String compositeMd5;
+
+    /**
      * 题型 1-单选 2-多选 3-填空 4-简答
      */
     private Integer type;

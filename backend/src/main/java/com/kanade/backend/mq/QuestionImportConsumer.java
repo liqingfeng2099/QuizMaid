@@ -1,6 +1,8 @@
 package com.kanade.backend.mq;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import com.alibaba.excel.EasyExcel;
 import com.alibaba.excel.context.AnalysisContext;
 import com.alibaba.excel.event.AnalysisEventListener;
@@ -13,29 +15,45 @@ import com.kanade.backend.model.entity.Question;
 import com.kanade.backend.model.excel.QuestionExcelData;
 import com.kanade.backend.service.ImportTaskRedisService;
 import com.kanade.backend.service.QuestionService;
+import com.kanade.backend.utils.NormalizationUtils;
+import com.mybatisflex.core.logicdelete.LogicDeleteManager;
+import com.mybatisflex.core.query.QueryWrapper;
 import com.rabbitmq.client.Channel;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
+import java.time.Duration;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 @Component
 @Slf4j
 public class QuestionImportConsumer {
 
-    @Autowired
+    @Resource
     private QuestionService questionService;
 
-    @Autowired
+    @Resource
     private ImportTaskRedisService importTaskRedisService;
+
+    @Resource
+    private RedissonClient redissonClient;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
+    private static final int BATCH_SIZE = 100;
 
     @RabbitListener(queues = RabbitMQConfig.QUEUE_IMPORT, ackMode = "MANUAL", concurrency = "1")
     public void handleImport(QuestionImportMessageDTO message, Channel channel, Message amqpMessage) throws IOException {
@@ -45,68 +63,208 @@ public class QuestionImportConsumer {
         Long creatorId = message.getCreatorId();
 
         try {
-            // 1. 检查文件是否存在
             if (!Files.exists(Paths.get(filePath))) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "文件不存在");
             }
 
-            // 2. 使用 EasyExcel 监听器逐行处理，同时更新 Redis 进度
-            List<String> errorList = new ArrayList<>();
-            int[] total = {0};
-            int[] success = {0};
-
-            EasyExcel.read(filePath, QuestionExcelData.class, new AnalysisEventListener<QuestionExcelData>() {
-                @Override
-                public void invoke(QuestionExcelData data, AnalysisContext context) {
-                    total[0]++;
-                    try {
-                        // 数据校验
-                        validateExcelData(data);
-                        // 转换为 Question 实体
-                        Question question = convertToQuestion(data, creatorId);
-                        // 调用原有添加逻辑（包含MD5查重）
-                        questionService.addQuestion(question, creatorId);
-                        success[0]++;
-                    } catch (Exception e) {
-                        log.error("第{}行数据导入失败: {}", total[0], e.getMessage());
-                        errorList.add("第" + total[0] + "行: " + e.getMessage());
-                    }
-
-                    // 每处理10行更新一次 Redis（减少IO）
-                    if (total[0] % 10 == 0) {
-                        List<String> batchErrors = new ArrayList<>(errorList);
-                        importTaskRedisService.updateProgress(taskId, 10, success[0] % 10, (10 - success[0] % 10) % 10, batchErrors);
-                        errorList.clear();
-                    }
+            // Layer 1: File MD5 dedup
+            byte[] fileBytes = Files.readAllBytes(Paths.get(filePath));
+            String fileMd5 = DigestUtil.md5Hex(fileBytes);
+            Object existingRecord = stringRedisTemplate.opsForHash().get("import:file:records", fileMd5);
+            if (existingRecord != null) {
+                var record = JSON.parseObject(existingRecord.toString());
+                if ("COMPLETED".equals(record.getString("status"))) {
+                    log.info("File already processed, skipping: md5={}, fileName={}", fileMd5, filePath);
+                    importTaskRedisService.finishTask(taskId, true);
+                    channel.basicAck(deliveryTag, false);
+                    return;
                 }
+            }
 
-                @Override
-                public void doAfterAllAnalysed(AnalysisContext context) {
-                    log.info("Excel解析完成，共{}行", total[0]);
-                    // 最后更新剩余数据
-                    if (!errorList.isEmpty() || total[0] % 10 != 0) {
-                        int lastBatchCount = total[0] % 10;
-                        if (lastBatchCount == 0) lastBatchCount = 10;
-                        importTaskRedisService.updateProgress(taskId, lastBatchCount,
-                                success[0] % 10, (lastBatchCount - success[0] % 10) % 10, errorList);
+            // Layer 2: User-level task lock
+            RLock lock = redissonClient.getLock("lock:import:" + creatorId);
+            boolean locked = lock.tryLock(0, 600, TimeUnit.SECONDS);
+            if (!locked) {
+                log.warn("User has import task in progress: userId={}", creatorId);
+                importTaskRedisService.updateProgress(taskId, 0, 0, 0,
+                        List.of("当前有导入任务正在进行，请稍后再试"));
+                importTaskRedisService.finishTask(taskId, false);
+                channel.basicAck(deliveryTag, false);
+                return;
+            }
+
+            try {
+                // Read all Excel rows
+                List<Question> allQuestions = new ArrayList<>();
+                List<String> errorList = new ArrayList<>();
+                int[] total = {0};
+
+                EasyExcel.read(filePath, QuestionExcelData.class, new AnalysisEventListener<QuestionExcelData>() {
+                    @Override
+                    public void invoke(QuestionExcelData data, AnalysisContext context) {
+                        total[0]++;
+                        try {
+                            validateExcelData(data);
+                            Question question = convertToQuestion(data, creatorId);
+                            question.setCompositeMd5(NormalizationUtils.generateCompositeMd5(question));
+                            allQuestions.add(question);
+                        } catch (Exception e) {
+                            log.error("第{}行数据校验失败: {}", total[0], e.getMessage());
+                            errorList.add("第" + total[0] + "行: " + e.getMessage());
+                        }
                     }
-                    // 标记任务完成（成功或失败）
-                    boolean allSuccess = errorList.isEmpty();
-                    importTaskRedisService.finishTask(taskId, allSuccess);
-                }
-            }).sheet().doRead();
 
-            // 3. 处理完成后手动确认消息
-            channel.basicAck(deliveryTag, false);
+                    @Override
+                    public void doAfterAllAnalysed(AnalysisContext context) {
+                        log.info("Excel解析完成，共{}行，有效{}题", total[0], allQuestions.size());
+                    }
+                }).sheet().doRead();
+
+                // Update initial progress
+                importTaskRedisService.updateProgress(taskId, total[0], 0, 0, errorList);
+
+                // Layer 3: Batch preload dedup
+                List<Long> resultIds = batchAddWithDedup(allQuestions, creatorId, taskId);
+
+                // Layer 4 done (inside batchAddWithDedup)
+
+                // Store file MD5 record
+                var recordMap = new HashMap<String, String>();
+                recordMap.put("userId", creatorId.toString());
+                recordMap.put("fileName", Paths.get(filePath).getFileName().toString());
+                recordMap.put("totalQuestions", String.valueOf(total[0]));
+                recordMap.put("status", "COMPLETED");
+                stringRedisTemplate.opsForHash().putAll("import:file:records:" + fileMd5, recordMap);
+                stringRedisTemplate.expire("import:file:records:" + fileMd5, Duration.ofDays(7));
+
+                boolean allSuccess = errorList.isEmpty();
+                importTaskRedisService.finishTask(taskId, allSuccess);
+                channel.basicAck(deliveryTag, false);
+
+            } finally {
+                lock.unlock();
+            }
 
         } catch (Exception e) {
             log.error("导入处理失败", e);
-            // 记录失败状态到 Redis
             importTaskRedisService.finishTask(taskId, false);
             importTaskRedisService.updateProgress(taskId, 0, 0, 0, List.of("系统错误: " + e.getMessage()));
-            // 拒绝消息，不重新入队（可根据策略调整）
             channel.basicNack(deliveryTag, false, false);
         }
+    }
+
+    private List<Long> batchAddWithDedup(List<Question> allQuestions, Long creatorId, String taskId) {
+        if (CollUtil.isEmpty(allQuestions)) {
+            return List.of();
+        }
+
+        // Layer 3: Compute MD5s and batch preload dedup
+        for (Question q : allQuestions) {
+            q.setQuestionMd5(cn.hutool.crypto.digest.DigestUtil.md5Hex(q.getContent()));
+            q.setCompositeMd5(NormalizationUtils.generateCompositeMd5(q));
+            q.setCreatorId(creatorId);
+            q.setStatus(q.getStatus() == null ? 1 : q.getStatus());
+        }
+
+        List<String> questionMd5List = allQuestions.stream()
+                .map(Question::getQuestionMd5)
+                .distinct()
+                .toList();
+
+        // Single DB query for all existing questions by questionMd5
+        List<Question> existingQuestions = LogicDeleteManager.execWithoutLogicDelete(() -> {
+            QueryWrapper wrapper = QueryWrapper.create()
+                    .in(Question::getQuestionMd5, questionMd5List);
+            return questionService.list(wrapper);
+        });
+
+        // Build HashMap for O(1) lookup by questionMd5
+        Map<String, Question> existMap = new HashMap<>();
+        if (CollUtil.isNotEmpty(existingQuestions)) {
+            for (Question eq : existingQuestions) {
+                if (eq.getQuestionMd5() != null) {
+                    existMap.put(eq.getQuestionMd5(), eq);
+                }
+            }
+        }
+
+        // Classify: questionMd5 for DB dedup, compositeMd5 for in-batch dedup
+        List<Question> toInsert = new ArrayList<>();
+        List<Long> resultIds = new ArrayList<>();
+        int duplicateCount = 0;
+        int restoreCount = 0;
+        Set<String> batchCompositeSeen = new HashSet<>();
+
+        for (Question q : allQuestions) {
+            String qMd5 = q.getQuestionMd5();
+            String cMd5 = q.getCompositeMd5();
+            Question existing = existMap.get(qMd5);
+
+            if (existing != null) {
+                if (existing.getIsDeleted() == 0) {
+                    duplicateCount++;
+                } else {
+                    LogicDeleteManager.execWithoutLogicDelete(() -> {
+                        existing.setIsDeleted(0);
+                        existing.setUpdateTime(java.time.LocalDateTime.now());
+                        questionService.updateById(existing);
+                    });
+                    resultIds.add(existing.getId());
+                    restoreCount++;
+                }
+            } else if (batchCompositeSeen.contains(cMd5)) {
+                duplicateCount++;
+            } else {
+                toInsert.add(q);
+                batchCompositeSeen.add(cMd5);
+            }
+        }
+
+        // Layer 4: Batch insert with transactions
+        int successCount = 0;
+        List<String> batchErrors = new ArrayList<>();
+
+        for (int i = 0; i < toInsert.size(); i += BATCH_SIZE) {
+            int end = Math.min(i + BATCH_SIZE, toInsert.size());
+            List<Question> batch = toInsert.subList(i, end);
+            try {
+                doInsertBatch(batch);
+                for (Question q : batch) {
+                    resultIds.add(q.getId());
+                }
+                successCount += batch.size();
+            } catch (Exception e) {
+                log.error("批次插入失败: rows {}-{}", i, end, e);
+                for (Question q : batch) {
+                    try {
+                        doInsertSingle(q);
+                        resultIds.add(q.getId());
+                        successCount++;
+                    } catch (Exception ex) {
+                        batchErrors.add("第" + (i + batch.indexOf(q) + 1) + "题: " + ex.getMessage());
+                    }
+                }
+            }
+
+            // Update progress after each batch
+            importTaskRedisService.updateProgress(taskId, batch.size(),
+                    successCount, batch.size() - successCount + duplicateCount, batchErrors);
+            batchErrors.clear();
+        }
+
+        log.info("Import complete: total={}, inserted={}, restored={}, duplicates={}",
+                allQuestions.size(), successCount, restoreCount, duplicateCount);
+        return resultIds;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void doInsertBatch(List<Question> batch) {
+        questionService.saveBatch(batch);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void doInsertSingle(Question question) {
+        questionService.save(question);
     }
 
     private void validateExcelData(QuestionExcelData data) {
@@ -132,7 +290,7 @@ public class QuestionImportConsumer {
         BeanUtils.copyProperties(data, question);
         question.setCreatorId(creatorId);
         if (question.getStatus() == null) {
-            question.setStatus(1); // 默认为草稿
+            question.setStatus(1);
         }
         return question;
     }

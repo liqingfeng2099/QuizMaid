@@ -23,6 +23,7 @@ import com.kanade.backend.model.vo.UserLoginVO;
 import com.kanade.backend.model.vo.UserVO;
 import com.kanade.backend.service.UserService;
 import com.mybatisflex.core.paginate.Page;
+import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -45,18 +46,18 @@ import static com.kanade.backend.common.Constant.EMAIL_VERIFY_CODE;
 @RequestMapping("/users")
 @Slf4j
 public class UserController {
-    @Autowired
-    UserService userService;
+    @Resource
+    private UserService userService;
 
-    @Autowired
-    IEmailService emailService;
+    @Resource
+    private IEmailService emailService;
 
-    @Autowired
+    @Resource(name = "stringRedisTemplate")
     private StringRedisTemplate redisTemplate;
 
     @GetMapping("/")
     public BaseResponse<String> healthCheck() {
-        return ResultUtils.success("ok test  koko tttt llll gg check");
+        return ResultUtils.success("ok test  koko tttt ll gg check");
 
     }
 
