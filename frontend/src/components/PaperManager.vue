@@ -57,6 +57,12 @@
         >
           批量删除
         </a-button>
+        <a-button
+          @click="exportVisible = true"
+          :disabled="selectedRowKeys.length === 0"
+        >
+          批量导出
+        </a-button>
       </div>
 
       <!-- 试卷列表表格区 -->
@@ -88,6 +94,9 @@
               </a-button>
               <a-button type="link" size="small" @click="handleManageQuestions(record)">
                 管理试题
+              </a-button>
+              <a-button type="link" size="small" @click="exportPid = record.id; exportPname = record.paperName; exportVisible = true">
+                导出
               </a-button>
             </a-space>
           </template>
@@ -381,6 +390,15 @@
         </a-tab-pane>
       </a-tabs>
     </a-modal>
+
+    <!-- 导出弹窗 -->
+    <PaperExportDialog
+      v-if="exportVisible"
+      :paper-id="exportPid"
+      :paper-name="exportPname"
+      :paper-ids="selectedRowKeys"
+      @close="exportVisible = false"
+    />
   </div>
 </template>
 
@@ -406,6 +424,7 @@ import {
 } from '@/api/shijuanshitiguanlianguanli'
 import { listQuestionByPage, listAllQuestionByPage } from '@/api/shitiguanli'
 import { useLoginUserStore } from '@/stores/loginUser'
+import PaperExportDialog from './PaperExportDialog.vue'
 import type { FormInstance } from 'ant-design-vue'
 
 interface PaperRecord {
@@ -475,6 +494,9 @@ const loading = ref(false)
 const paperList = ref<PaperRecord[]>([])
 const selectedRowKeys = ref<number[]>([])
 const router = useRouter()
+const exportVisible = ref(false)
+const exportPid = ref<number>()
+const exportPname = ref('')
 const loginUserStore = useLoginUserStore()
 
 const subjectOptions = ref<string[]>(['数学', '语文', '英语', '物理', '化学', '生物', '历史', '地理', '政治'])

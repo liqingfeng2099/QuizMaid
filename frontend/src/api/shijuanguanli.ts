@@ -248,3 +248,28 @@ export async function reuseChatStrategy(
     ...(options || {}),
   })
 }
+
+// ===== 试卷导出 API =====
+export async function exportWord(body: API.ExportConfigDTO) {
+  return request<Blob>('/examPaper/export/word', {
+    method: 'POST', responseType: 'blob',
+    headers: { 'Content-Type': 'application/json' }, data: body,
+  })
+}
+export async function exportPdf(body: API.ExportConfigDTO) {
+  return request<Blob>('/examPaper/export/pdf', {
+    method: 'POST', responseType: 'blob',
+    headers: { 'Content-Type': 'application/json' }, data: body,
+  })
+}
+export async function previewPaper(body: API.ExportConfigDTO) {
+  return request<API.BaseResponseString>('/examPaper/export/preview', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, data: body,
+  })
+}
+export async function listExportFiles() {
+  return request<API.BaseResponseListExportFileVO>('/examPaper/export/files', { method: 'GET' })
+}
+export async function deleteExportFile(index: number) {
+  return request<API.BaseResponseBoolean>(`/examPaper/export/delete/${index}`, { method: 'POST' })
+}

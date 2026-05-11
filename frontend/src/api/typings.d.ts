@@ -669,4 +669,37 @@ declare namespace API {
   type AIChatQueryDTO = {
     limit?: number
   }
+
+  // ===== [2026-05-10 新增] 试卷导出类型 =====
+  type ExportConfigDTO = {
+    paperId?: number
+    paperIds?: number[]
+    showAnswer?: boolean
+    showAnalysis?: boolean
+    titleAlign?: string
+    scorePosition?: string
+    exportType?: string
+  }
+
+  type ExportFileVO = {
+    id?: number
+    paperId?: number
+    fileName?: string
+    filePath?: string
+    exportType?: string
+    exportStatus?: number
+    createTime?: string
+  }
+
+  type BaseResponseString = {
+    code?: number
+    data?: string
+    message?: string
+  }
+
+  type BaseResponseListExportFileVO = {
+    code?: number
+    data?: ExportFileVO[]
+    message?: string
+  }
 }
