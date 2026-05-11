@@ -5,9 +5,11 @@ import cn.dev33.satoken.annotation.SaCheckRole;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.json.JSONUtil;
+import com.kanade.backend.annotation.RateLimit;
 import com.kanade.backend.common.BaseResponse;
 import com.kanade.backend.common.DeleteRequest;
 import com.kanade.backend.common.ResultUtils;
+import com.kanade.backend.model.enums.RateLevel;
 import com.kanade.backend.exception.BusinessException;
 import com.kanade.backend.exception.ErrorCode;
 import com.kanade.backend.model.dto.*;
@@ -15,6 +17,7 @@ import com.kanade.backend.model.entity.Question;
 import com.kanade.backend.model.entity.User;
 import com.kanade.backend.model.vo.MatchCountVO;
 import com.kanade.backend.model.vo.QuestionVO;
+import com.kanade.backend.service.QuestionEsService;
 import com.kanade.backend.service.QuestionService;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -39,11 +42,15 @@ public class QuestionController {
     @Autowired
     private QuestionService questionService;
 
+    @Autowired
+    private QuestionEsService questionEsService;
+
 
     // todo 管理员管理题目
 
     @PostMapping("/add")
     @SaCheckLogin
+    @RateLimit(level = RateLevel.L2_MEDIUM)
     @Operation(summary = "添加试题")
     public BaseResponse<Long> addQuestion(@RequestBody QuestionAddDTO addDTO) {
         Question question = new Question();
@@ -61,6 +68,7 @@ public class QuestionController {
 
     @PostMapping("/add/batch")
     @SaCheckLogin
+    @RateLimit(level = RateLevel.L2_MEDIUM)
     @Operation(summary = "批量添加试题")
     public BaseResponse<List<Long>> batchAddQuestion(@RequestBody List<QuestionAddDTO> batchAddDTOList) {
         if (CollUtil.isEmpty(batchAddDTOList)) {
@@ -87,6 +95,7 @@ public class QuestionController {
 
     @PostMapping("/update")
     @SaCheckLogin
+    @RateLimit(level = RateLevel.L2_MEDIUM)
     @Operation(summary = "更新试题")
     public BaseResponse<Boolean> updateQuestion(@RequestBody QuestionUpdateDTO updateDTO) {
         if (updateDTO.getId() == null) {
@@ -102,6 +111,7 @@ public class QuestionController {
 
     @PostMapping("/delete")
     @SaCheckLogin
+    @RateLimit(level = RateLevel.L2_MEDIUM)
     @Operation(summary = "逻辑删除试题")
     public BaseResponse<Boolean> deleteQuestion(@RequestBody DeleteRequest deleteRequest) {
         if (deleteRequest.getId() == null) {
@@ -113,12 +123,13 @@ public class QuestionController {
         if (!user.getRole().equals("admin") && !user.getId().equals(byId.getCreatorId())){
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR,"无权访问");
         }
-        boolean result = questionService.removeById(deleteRequest.getId());
+        boolean result = questionService.deleteQuestion(deleteRequest.getId());
         return ResultUtils.success(result);
     }
 
     @PostMapping("/status")
     @SaCheckLogin
+    @RateLimit(level = RateLevel.L2_MEDIUM)
     @Operation(summary = "修改试题状态")
     public BaseResponse<Boolean> updateStatus(@RequestBody QuestionStatusDTO statusDTO) {
         if (statusDTO.getId() == null || statusDTO.getStatus() == null) {
@@ -130,6 +141,7 @@ public class QuestionController {
 
     @GetMapping("/get/{id}")
     @SaCheckLogin
+    @RateLimit(level = RateLevel.L3_LOOSE)
     @Operation(summary = "根据ID获取试题详情")
     public BaseResponse<QuestionVO> getQuestionById(@PathVariable Long id) {
         QuestionVO vo = questionService.getQuestionVOById(id);
@@ -138,6 +150,7 @@ public class QuestionController {
 
     @PostMapping("/list/admin/page")
     @SaCheckLogin
+    @RateLimit(level = RateLevel.L3_LOOSE)
     @Operation(summary = "分页查询试题")
     @SaCheckRole("admin")
     public BaseResponse<Page<QuestionVO>> listAllQuestionByPage(@RequestBody QuestionQueryDTO queryDTO) {
@@ -184,10 +197,20 @@ public class QuestionController {
     // todo 用户查看自己上传的题目
     @PostMapping("/list/page")
     @SaCheckLogin
+    @RateLimit(level = RateLevel.L3_LOOSE)
     @Operation(summary = "分页查询试题")
     public BaseResponse<Page<QuestionVO>> listQuestionByPage(@RequestBody QuestionQueryDTO queryDTO) {
         queryDTO.setCreatorId(StpUtil.getLoginIdAsLong());
         Page<QuestionVO> page = questionService.getQuestionPage(queryDTO);
+        return ResultUtils.success(page);
+    }
+
+    @PostMapping("/search")
+    @SaCheckLogin
+    @RateLimit(level = RateLevel.L2_MEDIUM)
+    @Operation(summary = "ES全文检索试题（支持分词）")
+    public BaseResponse<Page<QuestionVO>> searchQuestions(@RequestParam String keyword, @RequestBody QuestionQueryDTO queryDTO) {
+        Page<QuestionVO> page = questionEsService.searchQuestions(keyword, queryDTO);
         return ResultUtils.success(page);
     }
 }

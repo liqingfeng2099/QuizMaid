@@ -1,5 +1,6 @@
 package com.kanade.backend.ai;
 
+import com.kanade.backend.ai.model.JudgeResult;
 import com.kanade.backend.ai.model.LabelResult;
 import dev.langchain4j.service.SystemMessage;
 import reactor.core.publisher.Flux;

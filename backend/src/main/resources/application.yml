@@ -5,13 +5,18 @@ spring:
   data:
     redis:
       # Redis数据库索引（默认为0）
-      database: 1
+      database: 2
       # Redis服务器地址
       host: 127.0.0.1
       # Redis服务器连接端口
       port: 6379
       # Redis服务器连接密码（默认为空）
       # password:
+    # Elasticsearch配置
+    elasticsearch:
+      uris: http://127.0.0.1:9200
+      # username: elastic
+      # password: your_password
 
   profiles:
     active: local
@@ -125,6 +130,14 @@ sa-token:
 #  client-id:
 #  client-secret:
 #  redirect-uri: http://localhost:8080/oauth/github/callback
+
+# App credentials for signature verification
+app:
+  credentials:
+    app-web:
+      secret-key: "quizmaid-web-2026-secret"
+      app-name: "Web端"
+      status: enabled
 
 # AI
 #langchain4j:

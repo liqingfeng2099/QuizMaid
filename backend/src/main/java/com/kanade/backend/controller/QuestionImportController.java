@@ -1,12 +1,14 @@
 package com.kanade.backend.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.kanade.backend.annotation.RateLimit;
 import com.kanade.backend.common.BaseResponse;
 import com.kanade.backend.common.ResultUtils;
 import com.kanade.backend.config.RabbitMQConfig;
 import com.kanade.backend.exception.BusinessException;
 import com.kanade.backend.exception.ErrorCode;
 import com.kanade.backend.model.dto.QuestionImportMessageDTO;
+import com.kanade.backend.model.enums.RateLevel;
 import com.kanade.backend.service.ImportTaskRedisService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -37,6 +39,7 @@ public class QuestionImportController {
     private String uploadDir;
 
     @PostMapping("/upload")
+    @RateLimit(level = RateLevel.L1_STRICT, timeWindow = 300, maxRequests = 3)
     public BaseResponse<String> uploadExcel(@RequestParam("file") MultipartFile file) {
         // 1. 校验文件
         if (file.isEmpty()) {
