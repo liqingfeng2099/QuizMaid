@@ -31,20 +31,21 @@ public class AiServiceFactory {
      */
     public static AiService getAiService(TaskEnum taskEnum) {
 
-        // 根据类型构建服务
-        return switch (taskEnum) {
-            case LABEL -> AiServices.builder(AiService.class)
+        if (taskEnum == TaskEnum.LABEL) {
+            return AiServices.builder(AiService.class)
                     .chatModel(staticChatModel)
                     .hallucinatedToolNameStrategy((toolExecutionRequest) ->
                             ToolExecutionResultMessage.from(toolExecutionRequest,
                                     "Error: there is no tool called " + toolExecutionRequest.name()))
                     .build();
-            case JUDGE -> AiServices.builder(AiService.class)
+        } else if (taskEnum == TaskEnum.JUDGE) {
+            return AiServices.builder(AiService.class)
                     .chatModel(staticChatModel)
                     .build();
-            default -> throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+        } else {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
                     "不支持的类型: " + taskEnum.getValue());
-        };
+        }
     }
 
     @Bean

@@ -14,7 +14,7 @@ public interface AiService {
     Flux<String> generateStreamingQuestionLabel(String userMessage);
 
     @SystemMessage(fromResource = "prompt/judge.txt")
-    JudgeResult generateQuestionJudge(String userMessage);
+    String generateQuestionJudge(String userMessage);
 
     @SystemMessage(fromResource = "prompt/paperAssembly.txt")
     String generatePaperAssembly(String userMessage);

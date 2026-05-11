@@ -61,6 +61,12 @@ public class Paperquestion implements Serializable {
     @Column("createTime")
     private LocalDateTime createTime;
 
+    /**
+     * 是否自动组卷添加 0-否 1-是
+     */
+    @Column("isAutoAdd")
+    private Integer isAutoAdd;
+
     @Column(value = "isDeleted", isLogicDelete = true)
     private Integer isDeleted;
 

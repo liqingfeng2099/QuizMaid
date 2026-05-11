@@ -133,6 +133,29 @@ public class Question implements Serializable {
     @Column("updateTime")
     private LocalDateTime updateTime;
 
+    /**
+     * 区分度 1-5
+     */
+    private Integer discrimination;
+
+    /**
+     * 计算量等级 1-3
+     */
+    @Column("calcLevel")
+    private Integer calcLevel;
+
+    /**
+     * 考频 0-100
+     */
+    @Column("examFrequency")
+    private Integer examFrequency;
+
+    /**
+     * 学段ID
+     */
+    @Column("gradeStageId")
+    private Long gradeStageId;
+
     @Column(value = "isDeleted", isLogicDelete = true)
     private Integer isDeleted;
 
