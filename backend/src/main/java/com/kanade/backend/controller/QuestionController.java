@@ -15,20 +15,21 @@ import com.kanade.backend.exception.ErrorCode;
 import com.kanade.backend.model.dto.*;
 import com.kanade.backend.model.entity.Question;
 import com.kanade.backend.model.entity.User;
+import com.kanade.backend.model.vo.MatchCountVO;
 import com.kanade.backend.model.vo.QuestionVO;
 import com.kanade.backend.service.QuestionEsService;
 import com.kanade.backend.service.QuestionService;
 import com.mybatisflex.core.paginate.Page;
+import com.mybatisflex.core.query.QueryWrapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.tomcat.util.buf.ByteChunk;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.kanade.backend.common.Constant.USER_LOGIN_STATE;
 
@@ -155,6 +156,42 @@ public class QuestionController {
     public BaseResponse<Page<QuestionVO>> listAllQuestionByPage(@RequestBody QuestionQueryDTO queryDTO) {
         Page<QuestionVO> page = questionService.getQuestionPage(queryDTO);
         return ResultUtils.success(page);
+    }
+
+    @PostMapping("/matchCount")
+    @SaCheckLogin
+    @Operation(summary = "匹配计数：根据筛选条件返回各题型/难度题目数量")
+    public BaseResponse<MatchCountVO> matchCount(@RequestBody MatchCountDTO dto) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        QueryWrapper wrapper = QueryWrapper.create().eq("creatorId", userId);
+
+        if (dto.getSubject() != null && !dto.getSubject().isBlank()) {
+            wrapper.eq("subject", dto.getSubject());
+        }
+        if (dto.getChapter() != null && !dto.getChapter().isBlank()) {
+            wrapper.like("chapter", dto.getChapter());
+        }
+        if (dto.getDifficulty() != null) {
+            wrapper.eq("difficulty", dto.getDifficulty());
+        }
+        if (dto.getTypes() != null && !dto.getTypes().isEmpty()) {
+            wrapper.in("type", dto.getTypes());
+        }
+
+        List<Question> questions = questionService.list(wrapper);
+
+        int total = questions.size();
+        Map<Integer, Integer> byType = questions.stream()
+                .collect(Collectors.groupingBy(Question::getType, Collectors.summingInt(q -> 1)));
+        Map<Integer, Integer> byDifficulty = questions.stream()
+                .filter(q -> q.getDifficulty() != null)
+                .collect(Collectors.groupingBy(Question::getDifficulty, Collectors.summingInt(q -> 1)));
+
+        return ResultUtils.success(MatchCountVO.builder()
+                .totalCount(total)
+                .byType(byType)
+                .byDifficulty(byDifficulty)
+                .build());
     }
 
     // todo 用户查看自己上传的题目

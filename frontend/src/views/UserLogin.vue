@@ -123,7 +123,7 @@ const emailForm = reactive({
 const countdown = ref(0)
 const sendingCode = ref(false)
 
-const handleAccountLogin = async (values: any) => {
+const handleAccountLogin = async (values: { username: string; userPassword: string }) => {
   try {
     const res = await login(values)
     if (res.data.code === 0 && res.data.data) {
@@ -133,12 +133,12 @@ const handleAccountLogin = async (values: any) => {
     } else {
       message.error('登录失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('登录请求失败')
   }
 }
 
-const handleEmailLogin = async (values: any) => {
+const handleEmailLogin = async (values: { email: string; code: string }) => {
   try {
     const res = await emailLogin(values)
     if (res.data.code === 0 && res.data.data) {
@@ -148,7 +148,7 @@ const handleEmailLogin = async (values: any) => {
     } else {
       message.error('登录失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('登录请求失败')
   }
 }
@@ -178,7 +178,7 @@ const handleSendCode = async () => {
     } else {
       message.error('发送验证码失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('发送验证码请求失败')
   } finally {
     sendingCode.value = false
@@ -193,7 +193,7 @@ const handleGithubLogin = async () => {
     } else {
       message.error('GitHub登录失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('GitHub登录请求失败')
   }
 }

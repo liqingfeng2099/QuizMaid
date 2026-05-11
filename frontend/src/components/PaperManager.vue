@@ -44,6 +44,9 @@
         <a-button type="primary" @click="handleAdd">
           新增试卷
         </a-button>
+        <a-button type="primary" @click="handleManualAssembly">
+          手动组卷
+        </a-button>
         <a-button type="primary" @click="handleAIPaperAssembly">
           AI智能组卷
         </a-button>
@@ -153,7 +156,7 @@
           :pagination="false"
           row-key="id"
         >
-          <template #bodyCell="{ column, record, index }">
+          <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'sort'">
               <a-input-number
                 v-model:value="record.sort"
@@ -251,66 +254,139 @@
       </div>
     </a-modal>
 
-    <!-- AI智能组卷弹窗 -->
+    <!-- AI智能组卷弹窗（两阶段 + 历史记录） -->
     <a-modal
       v-model:open="aiAssemblyVisible"
       title="AI智能组卷"
-      width="60%"
-      @ok="handleAIAssemblyOk"
-      @cancel="handleAIAssemblyCancel"
-      :confirmLoading="aiAssemblyLoading"
+      width="65%"
+      :footer="null"
+      @cancel="handleAIClose"
     >
-      <a-form
-        ref="aiFormRef"
-        :model="aiFormState"
-        :label-col="{ span: 6 }"
-        :wrapper-col="{ span: 16 }"
-      >
-        <a-form-item label="试卷名称" name="paperName" :rules="[{ required: true, message: '请输入试卷名称' }]">
-          <a-input v-model:value="aiFormState.paperName" placeholder="请输入试卷名称" />
-        </a-form-item>
-        <a-form-item label="所属科目" name="subject">
-          <a-select v-model:value="aiFormState.subject" placeholder="请选择科目（可选）" allow-clear>
-            <a-select-option v-for="subject in subjectOptions" :key="subject" :value="subject">
-              {{ subject }}
-            </a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="章节" name="chapter">
-          <a-input v-model:value="aiFormState.chapter" placeholder="请输入章节（可选）" />
-        </a-form-item>
-        <a-form-item label="难度" name="difficulty">
-          <a-select v-model:value="aiFormState.difficulty" placeholder="请选择难度（可选）" allow-clear>
-            <a-select-option :value="1">简单</a-select-option>
-            <a-select-option :value="2">中等</a-select-option>
-            <a-select-option :value="3">困难</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="总分" name="totalScore">
-          <a-input-number v-model:value="aiFormState.totalScore" :min="0" :precision="0" style="width: 100%" placeholder="请输入总分（可选）" />
-        </a-form-item>
-        <a-form-item label="状态" name="status" :rules="[{ required: true, message: '请选择状态' }]">
-          <a-select v-model:value="aiFormState.status">
-            <a-select-option :value="0">草稿</a-select-option>
-            <a-select-option :value="1">已发布</a-select-option>
-            <a-select-option :value="2">已归档</a-select-option>
-            <a-select-option :value="3">已停用</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="组卷需求" name="userRequirement">
-          <a-textarea
-            v-model:value="aiFormState.userRequirement"
-            placeholder="请描述您的组卷需求，例如：侧重基础知识、题型分布均匀、难度适中等"
-            :rows="4"
+      <a-tabs v-model:activeKey="(aiStage as string)" @change="(k: string) => { if (k === 'history') loadAIHistory() }">
+        <!-- 阶段1：输入需求 -->
+        <a-tab-pane key="input" tab="组卷需求">
+          <a-form :model="aiFormState" :label-col="{ span: 6 }" :wrapper-col="{ span: 16 }">
+            <a-form-item label="试卷名称" required>
+              <a-input v-model:value="aiFormState.paperName" placeholder="请输入试卷名称" />
+            </a-form-item>
+            <a-form-item label="所属科目">
+              <a-select v-model:value="aiFormState.subject" placeholder="选择科目（可选）" allow-clear>
+                <a-select-option v-for="s in subjectOptions" :key="s" :value="s">{{ s }}</a-select-option>
+              </a-select>
+            </a-form-item>
+            <a-form-item label="难度">
+              <a-select v-model:value="aiFormState.difficulty" placeholder="选择难度（可选）" allow-clear>
+                <a-select-option :value="1">简单</a-select-option>
+                <a-select-option :value="2">中等</a-select-option>
+                <a-select-option :value="3">困难</a-select-option>
+              </a-select>
+            </a-form-item>
+            <a-form-item label="状态" required>
+              <a-select v-model:value="aiFormState.status">
+                <a-select-option :value="0">草稿</a-select-option>
+                <a-select-option :value="1">已发布</a-select-option>
+              </a-select>
+            </a-form-item>
+            <a-divider>个性化配置</a-divider>
+            <a-form-item label="融入学习画像">
+              <a-switch v-model:checked="aiV2UsePersonalization" />
+              <span style="margin-left:8px;color:#888;font-size:12px">将您的答题统计和薄弱知识点预填为AI提示词</span>
+            </a-form-item>
+            <a-form-item v-if="aiV2UsePersonalization" label="聚焦薄弱点">
+              <a-switch v-model:checked="aiV2IncludeWeak" />
+              <span style="margin-left:8px;color:#888;font-size:12px">优先选择薄弱知识点相关题目</span>
+            </a-form-item>
+
+            <!-- 学习画像摘要 -->
+            <a-alert v-if="aiV2UsePersonalization && aiV2Profile" type="info" style="margin-bottom:12px">
+              <template #message>
+                总答题 {{ aiV2Profile.answerNum }} 题，正确率 {{ aiV2Profile.accuracy?.toFixed(1) || 'N/A' }}%
+                <span v-if="aiV2Profile.weakPoints?.length">
+                  | 薄弱知识点：
+                  <a-tag v-for="wp in aiV2Profile.weakPoints.slice(0,3)" :key="wp.knowledgePoint" color="orange" size="small">
+                    {{ wp.knowledgePoint }}({{ wp.accuracy }}%)
+                  </a-tag>
+                </span>
+              </template>
+            </a-alert>
+
+            <a-form-item label="组卷需求">
+              <a-textarea v-model:value="aiFormState.userRequirement"
+                placeholder="自然语言描述组卷需求，如：侧重二次函数、难度适中、题型均衡"
+                :rows="3" />
+            </a-form-item>
+          </a-form>
+          <div style="text-align:center;margin-top:12px">
+            <a-button type="primary" size="large" @click="handleAIGenerate" :loading="aiV2Loading">
+              生成组卷方案
+            </a-button>
+          </div>
+          <div v-if="aiV2Error" style="text-align:center;margin-top:8px;color:red">{{ aiV2Error }}</div>
+        </a-tab-pane>
+
+        <!-- 阶段2：确认方案 -->
+        <a-tab-pane key="review" tab="确认方案" v-if="aiV2Strategy">
+          <a-descriptions bordered size="small" :column="2">
+            <a-descriptions-item label="选中题目数">{{ aiV2Strategy.totalQuestions }} 题</a-descriptions-item>
+            <a-descriptions-item label="实际总分">{{ aiV2Strategy.actualTotalScore }} 分</a-descriptions-item>
+            <a-descriptions-item label="平均难度">{{ aiV2Strategy.difficultyAvg || 'AI未指定' }}</a-descriptions-item>
+            <a-descriptions-item label="算法类型">AI (DeepSeek)</a-descriptions-item>
+          </a-descriptions>
+
+          <a-divider>选中题目预览</a-divider>
+          <a-table
+            :columns="[
+              { title: '#', width: 50, customRender: ({ index }: any) => index + 1 },
+              { title: '题目ID', dataIndex: 'questionId', width: 80 },
+            ]"
+            :data-source="aiV2Strategy.questionIds?.map((id, i) => ({ key: i, questionId: id })) || []"
+            :pagination="false" size="small" style="margin-bottom:12px"
           />
-        </a-form-item>
-      </a-form>
+
+          <a-alert v-if="aiV2RetryCount > 0" :message="'AI调用重试了' + aiV2RetryCount + '次后成功'" type="warning" show-icon style="margin-bottom:12px" />
+
+          <div style="text-align:center;margin-top:12px">
+            <a-space size="large">
+              <a-button type="primary" size="large" @click="handleAIConfirm" :loading="aiV2Loading">确认组卷</a-button>
+              <a-button size="large" @click="handleAIRegenerate" :loading="aiV2Loading">重新生成</a-button>
+              <a-button size="large" @click="handleAISwitchManual">切换手动组卷</a-button>
+            </a-space>
+          </div>
+        </a-tab-pane>
+
+        <!-- 历史记录 -->
+        <a-tab-pane key="history" tab="历史记录">
+          <a-table
+            :columns="[
+              { title: '时间', dataIndex: 'createTime', width: 160 },
+              { title: '用户需求', dataIndex: 'chatContent', ellipsis: true },
+              { title: '状态', dataIndex: 'status', width: 80 },
+              { title: '操作', key: 'action', width: 80 },
+            ]"
+            :data-source="aiV2History"
+            :pagination="false" size="small"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'status'">
+                <a-tag :color="record.status === 1 ? 'green' : 'red'">
+                  {{ record.status === 1 ? '成功' : '失败' }}
+                </a-tag>
+              </template>
+              <template v-if="column.key === 'action'">
+                <a-button type="link" size="small" @click="handleAIReuse(record)">复用</a-button>
+              </template>
+            </template>
+          </a-table>
+          <div v-if="aiV2History.length === 0" style="text-align:center;padding:24px;color:#999">暂无历史记录</div>
+        </a-tab-pane>
+      </a-tabs>
     </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import {
   addExamPaper,
@@ -318,7 +394,10 @@ import {
   listExamPaperByPage,
   updateExamPaper,
   getExamPaperById,
-  aiAssemblePaper
+  aiAssemblePaperV2,
+  confirmAIAssembly,
+  getAIProfile,
+  getAIChatHistory
 } from '@/api/shijuanguanli'
 import {
   addQuestionToPaper,
@@ -395,6 +474,7 @@ const selectQuestionColumns = [
 const loading = ref(false)
 const paperList = ref<PaperRecord[]>([])
 const selectedRowKeys = ref<number[]>([])
+const router = useRouter()
 const loginUserStore = useLoginUserStore()
 
 const subjectOptions = ref<string[]>(['数学', '语文', '英语', '物理', '化学', '生物', '历史', '地理', '政治'])
@@ -455,8 +535,6 @@ const availableQuestionsPagination = reactive({
 
 // AI组卷相关状态
 const aiAssemblyVisible = ref(false)
-const aiAssemblyLoading = ref(false)
-const aiFormRef = ref<FormInstance>()
 
 const aiFormState = reactive({
   paperName: '',
@@ -467,6 +545,137 @@ const aiFormState = reactive({
   status: 0,
   userRequirement: ''
 })
+
+// ===== AI v2 增强状态 =====
+const aiStage = ref<'input' | 'review' | 'history'>('input')
+const aiV2Loading = ref(false)
+const aiV2RetryCount = ref(0)
+const aiV2Error = ref('')
+const aiV2Strategy = ref<API.AIAssemblyStrategyVO | null>(null)
+const aiV2Profile = ref<API.AIProfileVO | null>(null)
+const aiV2History = ref<API.AIChatVO[]>([])
+const aiV2UsePersonalization = ref(true)
+const aiV2IncludeWeak = ref(false)
+
+async function loadAIProfile() {
+  try {
+    const res = await getAIProfile()
+    if (res.data.code === 0 && res.data.data) {
+      aiV2Profile.value = res.data.data
+    }
+  } catch { /* ignore */ }
+}
+
+async function loadAIHistory() {
+  try {
+    const res = await getAIChatHistory({ limit: 20 })
+    if (res.data.code === 0 && res.data.data) {
+      aiV2History.value = res.data.data
+    }
+  } catch { /* ignore */ }
+}
+
+async function handleAIGenerate() {
+  if (!aiFormState.paperName) { message.warning('请输入试卷名称'); return }
+  aiV2Loading.value = true
+  aiV2RetryCount.value = 0
+  aiV2Error.value = ''
+  try {
+    const res = await aiAssemblePaperV2({
+      paperName: aiFormState.paperName,
+      subject: aiFormState.subject,
+      chapter: aiFormState.chapter,
+      difficulty: aiFormState.difficulty,
+      totalScore: aiFormState.totalScore,
+      status: aiFormState.status,
+      userRequirement: aiFormState.userRequirement,
+      usePersonalization: aiV2UsePersonalization.value,
+      includeWeakAreas: aiV2IncludeWeak.value,
+    })
+    if (res.data.code === 0 && res.data.data) {
+      aiV2Strategy.value = res.data.data
+      aiStage.value = 'review'
+    } else {
+      aiV2Error.value = res.data.message || 'AI组卷失败，建议切换手动组卷'
+    }
+  } catch {
+    aiV2Error.value = 'AI组卷请求失败，建议切换手动组卷'
+  } finally {
+    aiV2Loading.value = false
+  }
+}
+
+async function handleAIConfirm() {
+  if (!aiV2Strategy.value || !aiV2Strategy.value.questionIds?.length) {
+    message.warning('没有题目可供保存'); return
+  }
+  aiV2Loading.value = true
+  try {
+    const res = await confirmAIAssembly({
+      paperName: aiFormState.paperName,
+      subject: aiFormState.subject,
+      status: aiFormState.status,
+      totalScore: aiFormState.totalScore,
+      strategy: aiV2Strategy.value,
+    })
+    if (res.data.code === 0) {
+      message.success('AI组卷成功！试卷已创建')
+      handleAIClose()
+      loadPaperList()
+    } else {
+      message.error('保存失败：' + res.data.message)
+    }
+  } catch {
+    message.error('保存请求失败')
+  } finally {
+    aiV2Loading.value = false
+  }
+}
+
+function handleAIRegenerate() {
+  aiV2Strategy.value = null
+  aiStage.value = 'input'
+  handleAIGenerate()
+}
+
+function handleAISwitchManual() {
+  aiAssemblyVisible.value = false
+  resetAIForm()
+  router.push('/paper/assembly')
+}
+
+function handleAIReuse(chat: API.AIChatVO) {
+  aiFormState.userRequirement = chat.chatContent || ''
+  aiStage.value = 'input'
+  // 尝试从历史恢复策略
+  if (chat.aiResponse) {
+    try {
+      const strategy = JSON.parse(chat.aiResponse)
+      aiV2Strategy.value = {
+        questionIds: strategy.questionIds || [],
+        totalQuestions: strategy.questionIds?.length || 0,
+        actualTotalScore: (strategy.questionIds?.length || 0) * 10,
+      }
+      aiStage.value = 'review'
+    } catch { /* ignore */ }
+  }
+}
+
+function handleAIClose() {
+  aiAssemblyVisible.value = false
+  aiStage.value = 'input'
+  aiV2Strategy.value = null
+  aiV2Error.value = ''
+  aiV2RetryCount.value = 0
+}
+
+function handleAIOpen() {
+  aiAssemblyVisible.value = true
+  aiStage.value = 'input'
+  resetAIForm()
+  loadAIProfile()
+  loadAIHistory()
+}
 
 const getCurrentUser = () => {
   return loginUserStore.loginUser
@@ -480,7 +689,7 @@ onMounted(async () => {
 const loadPaperList = async () => {
   loading.value = true
   try {
-    const query: any = {
+    const query: Record<string, unknown> = {
       pageNum: pagination.current,
       pageSize: pagination.pageSize
     }
@@ -508,13 +717,14 @@ const loadPaperList = async () => {
       message.error('加载试卷列表失败：' + res.data.message)
     }
   } catch (error) {
+    console.error(error)
     message.error('加载试卷列表请求失败')
   } finally {
     loading.value = false
   }
 }
 
-const handleTableChange = (pag: any) => {
+const handleTableChange = (pag: { current: number; pageSize: number }) => {
   pagination.current = pag.current
   pagination.pageSize = pag.pageSize
   loadPaperList()
@@ -570,6 +780,7 @@ const handleDelete = (record: PaperRecord) => {
           message.error('删除失败：' + res.data.message)
         }
       } catch (error) {
+        console.error(error)
         message.error('删除请求失败')
       }
     }
@@ -593,6 +804,7 @@ const handleBatchDelete = () => {
         selectedRowKeys.value = []
         loadPaperList()
       } catch (error) {
+        console.error(error)
         message.error('批量删除请求失败')
       }
     }
@@ -672,7 +884,7 @@ const loadPaperQuestions = async (paperId: number) => {
     } else {
       message.error('加载试卷试题失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('加载试卷试题请求失败')
   } finally {
     questionLoading.value = false
@@ -699,7 +911,7 @@ const handleAddQuestions = () => {
 const loadAvailableQuestions = async () => {
   availableQuestionsLoading.value = true
   try {
-    const query: any = {
+    const query: Record<string, unknown> = {
       pageNum: availableQuestionsPagination.current,
       pageSize: availableQuestionsPagination.pageSize
     }
@@ -733,7 +945,7 @@ const loadAvailableQuestions = async () => {
         message.error('加载试题列表失败：' + res.data.message)
       }
     }
-  } catch (error) {
+  } catch {
     message.error('加载试题列表请求失败')
   } finally {
     availableQuestionsLoading.value = false
@@ -745,7 +957,7 @@ const handleSearchQuestions = () => {
   loadAvailableQuestions()
 }
 
-const handleSelectQuestionTableChange = (pag: any) => {
+const handleSelectQuestionTableChange = (pag: { current: number; pageSize: number }) => {
   availableQuestionsPagination.current = pag.current
   availableQuestionsPagination.pageSize = pag.pageSize
   loadAvailableQuestions()
@@ -767,7 +979,6 @@ const handleSelectQuestionOk = async () => {
   try {
     const currentSort = currentPaperQuestions.value.length + 1
     for (const questionId of selectedQuestionKeys.value) {
-      const question = availableQuestions.value.find(q => q.id === questionId)
       const res = await addQuestionToPaper({
         paperId: currentPaperId.value,
         questionId: questionId,
@@ -784,7 +995,7 @@ const handleSelectQuestionOk = async () => {
     message.success('添加试题成功')
     selectQuestionVisible.value = false
     await loadPaperQuestions(currentPaperId.value)
-  } catch (error) {
+  } catch {
     message.error('添加试题请求失败')
   } finally {
     selectQuestionLoading.value = false
@@ -812,7 +1023,7 @@ const handleRemoveQuestion = (record: PaperQuestionVO) => {
         } else {
           message.error('移除失败：' + res.data.message)
         }
-      } catch (error) {
+      } catch {
         message.error('移除请求失败')
       }
     }
@@ -831,7 +1042,7 @@ const handleSortChange = async (record: PaperQuestionVO) => {
       message.error('更新排序失败：' + res.data.message)
       await loadPaperQuestions(currentPaperId.value!)
     }
-  } catch (error) {
+  } catch {
     message.error('更新排序请求失败')
     await loadPaperQuestions(currentPaperId.value!)
   }
@@ -849,7 +1060,7 @@ const handleScoreChange = async (record: PaperQuestionVO) => {
       message.error('更新分值失败：' + res.data.message)
       await loadPaperQuestions(currentPaperId.value!)
     }
-  } catch (error) {
+  } catch {
     message.error('更新分值请求失败')
     await loadPaperQuestions(currentPaperId.value!)
   }
@@ -897,55 +1108,13 @@ const getQuestionTypeText = (type?: number) => {
   return textMap[type || 0] || '未知'
 }
 
+// 手动组卷
+const handleManualAssembly = () => {
+  router.push('/paper/assembly')
+}
+
 // AI组卷相关方法
-const handleAIPaperAssembly = () => {
-  aiAssemblyVisible.value = true
-  resetAIForm()
-}
-
-const handleAIAssemblyOk = async () => {
-  try {
-    await aiFormRef.value?.validate()
-    aiAssemblyLoading.value = true
-
-    const res = await aiAssemblePaper({
-      paperName: aiFormState.paperName,
-      subject: aiFormState.subject,
-      chapter: aiFormState.chapter,
-      difficulty: aiFormState.difficulty,
-      totalScore: aiFormState.totalScore,
-      status: aiFormState.status,
-      userRequirement: aiFormState.userRequirement
-    })
-
-    if (res.data.code === 0) {
-      message.success(`AI组卷成功！共选中${res.data.data?.totalQuestions}道题，总分${res.data.data?.actualTotalScore}分`)
-      aiAssemblyVisible.value = false
-      loadPaperList()
-      
-      // 自动打开试卷详情
-      if (res.data.data?.paperId) {
-        setTimeout(() => {
-          const paper = paperList.value.find(p => p.id === res.data.data?.paperId)
-          if (paper) {
-            handleManageQuestions(paper)
-          }
-        }, 500)
-      }
-    } else {
-      message.error('AI组卷失败：' + res.data.message)
-    }
-  } catch (error) {
-    console.error(error)
-  } finally {
-    aiAssemblyLoading.value = false
-  }
-}
-
-const handleAIAssemblyCancel = () => {
-  aiAssemblyVisible.value = false
-  resetAIForm()
-}
+const handleAIPaperAssembly = () => { handleAIOpen() }
 
 const resetAIForm = () => {
   aiFormState.paperName = ''

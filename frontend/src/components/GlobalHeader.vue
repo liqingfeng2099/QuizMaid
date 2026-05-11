@@ -73,6 +73,7 @@ const handleLogout = async () => {
       message.error('退出失败：' + res.data.message)
     }
   } catch (error) {
+    console.error(error)
     message.error('退出请求失败')
   }
 }

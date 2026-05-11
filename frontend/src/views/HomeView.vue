@@ -15,7 +15,7 @@ let myChart: echarts.ECharts | null = null
 const continuousDays = ref(0)
 const signData = ref<Record<string, boolean>>({})
 const value = ref(dayjs())
-const onPanelChange = (value: any, mode: string) => {
+const onPanelChange = (value: dayjs.Dayjs, mode: string) => {
   console.log(value, mode);
 };
 
@@ -45,8 +45,8 @@ const loadData = async () => {
       const currentYear = new Date().getFullYear().toString()
       const res = await getSignInDays({ userId: userId })
       if (res.data.code === 0 && res.data.data) {
-        const heatmapData: [string, number][] = res.data.data.map((item: any) => [
-          item.date,
+        const heatmapData: [string, number][] = res.data.data.map((item: API.UserHeatMapVO) => [
+          item.date || '',
           item.level || 0 // 使用 level 字段作为热力图等级
         ])
         updateChart(heatmapData, currentYear)
@@ -71,8 +71,11 @@ const loadSignData = async () => {
     }
     const currentYear = new Date().getFullYear()
     const signRes = await getUserSignData({ year: currentYear })
-    if (signRes.data.code === 0) {
-      signData.value = signRes.data.data || {}
+    if (signRes.data.code === 0 && signRes.data.data) {
+      // 将 Record<string, unknown> 转换为 Record<string, boolean>
+      signData.value = Object.fromEntries(
+        Object.entries(signRes.data.data).map(([key, value]) => [key, Boolean(value)])
+      )
     }
   } catch (error) {
     console.error('加载签到数据失败', error)
@@ -89,7 +92,7 @@ const handleSignIn = async () => {
     } else {
       message.error('签到失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('签到请求失败')
   }
 }
@@ -105,7 +108,11 @@ const updateChart = (data: [string, number][], year: string) => {
     },
     tooltip: {
       position: 'top',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       formatter: function(params: any) {
+        if (Array.isArray(params)) {
+          params = params[0]
+        }
         return params.value[0] + '<br/>学习天数: ' + params.value[1]
       }
     },
@@ -143,36 +150,6 @@ const updateChart = (data: [string, number][], year: string) => {
   }
   
   myChart.setOption(option)
-}
-
-const getSignStatus = (date: Date) => {
-  const dateStr = date.toISOString().split('T')[0]
-  return signData.value[dateStr as keyof typeof signData.value] || false
-}
-
-const generateCalendarDays = () => {
-  const days = []
-  const today = new Date()
-  const year = today.getFullYear()
-  const month = today.getMonth()
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-  const startDayOfWeek = firstDay.getDay()
-  
-  for (let i = 0; i < startDayOfWeek; i++) {
-    days.push({ day: null, signed: false })
-  }
-  
-  for (let i = 1; i <= lastDay.getDate(); i++) {
-    const date = new Date(year, month, i)
-    days.push({
-      day: i,
-      signed: getSignStatus(date),
-      isToday: i === today.getDate(),
-    })
-  }
-  
-  return days
 }
 
 healthCheck().then((res) => {

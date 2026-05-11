@@ -147,21 +147,21 @@ const emailForm = reactive({
 const countdown = ref(0)
 const sendingCode = ref(false)
 
-const validateAccountPasswordMatch = (_: any, value: any) => {
+const validateAccountPasswordMatch = (_: unknown, value: string) => {
   if (value !== accountForm.userPassword) {
     return Promise.reject('两次输入的密码不一致')
   }
   return Promise.resolve()
 }
 
-const validateEmailPasswordMatch = (_: any, value: any) => {
+const validateEmailPasswordMatch = (_: unknown, value: string) => {
   if (value !== emailForm.userPassword) {
     return Promise.reject('两次输入的密码不一致')
   }
   return Promise.resolve()
 }
 
-const handleAccountRegister = async (values: any) => {
+const handleAccountRegister = async (values: { userName: string; userPassword: string; checkUserPassword: string }) => {
   try {
     const res = await register(values)
     if (res.data.code === 0 && res.data.data) {
@@ -170,12 +170,12 @@ const handleAccountRegister = async (values: any) => {
     } else {
       message.error('注册失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('注册请求失败')
   }
 }
 
-const handleEmailRegister = async (values: any) => {
+const handleEmailRegister = async (values: { userName: string; userPassword: string; checkUserPassword: string; email: string; code: string }) => {
   try {
     const res = await emailRegister(values)
     if (res.data.code === 0 && res.data.data) {
@@ -184,7 +184,7 @@ const handleEmailRegister = async (values: any) => {
     } else {
       message.error('注册失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('注册请求失败')
   }
 }
@@ -214,7 +214,7 @@ const handleSendCode = async () => {
     } else {
       message.error('发送验证码失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('发送验证码请求失败')
   } finally {
     sendingCode.value = false
