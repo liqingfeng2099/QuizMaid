@@ -37,13 +37,13 @@ declare namespace API {
 
   type BaseResponseMapLocalDateBoolean = {
     code?: number
-    data?: Record<string, any>
+    data?: Record<string, unknown>
     message?: string
   }
 
   type BaseResponseMapObjectObject = {
     code?: number
-    data?: Record<string, any>
+    data?: Record<string, unknown>
     message?: string
   }
 
@@ -202,7 +202,7 @@ declare namespace API {
   }
 
   type JSONConfig = {
-    keyComparator?: Record<string, any>
+    keyComparator?: Record<string, unknown>
     ignoreError?: boolean
     ignoreCase?: boolean
     dateFormat?: string
@@ -271,7 +271,7 @@ declare namespace API {
     knowledgePoints?: string
     tags?: string[]
     content?: string
-    options?: Record<string, any>[]
+    options?: Record<string, unknown>[]
     answer?: string
     analysis?: string
     status?: number

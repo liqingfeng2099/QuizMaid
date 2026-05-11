@@ -156,7 +156,7 @@
           :pagination="false"
           row-key="id"
         >
-          <template #bodyCell="{ column, record, index }">
+          <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'sort'">
               <a-input-number
                 v-model:value="record.sort"
@@ -394,12 +394,10 @@ import {
   listExamPaperByPage,
   updateExamPaper,
   getExamPaperById,
-  aiAssemblePaper,
   aiAssemblePaperV2,
   confirmAIAssembly,
   getAIProfile,
-  getAIChatHistory,
-  reuseChatStrategy
+  getAIChatHistory
 } from '@/api/shijuanguanli'
 import {
   addQuestionToPaper,
@@ -537,8 +535,6 @@ const availableQuestionsPagination = reactive({
 
 // AI组卷相关状态
 const aiAssemblyVisible = ref(false)
-const aiAssemblyLoading = ref(false)
-const aiFormRef = ref<FormInstance>()
 
 const aiFormState = reactive({
   paperName: '',
@@ -693,7 +689,7 @@ onMounted(async () => {
 const loadPaperList = async () => {
   loading.value = true
   try {
-    const query: any = {
+    const query: Record<string, unknown> = {
       pageNum: pagination.current,
       pageSize: pagination.pageSize
     }
@@ -721,13 +717,14 @@ const loadPaperList = async () => {
       message.error('加载试卷列表失败：' + res.data.message)
     }
   } catch (error) {
+    console.error(error)
     message.error('加载试卷列表请求失败')
   } finally {
     loading.value = false
   }
 }
 
-const handleTableChange = (pag: any) => {
+const handleTableChange = (pag: { current: number; pageSize: number }) => {
   pagination.current = pag.current
   pagination.pageSize = pag.pageSize
   loadPaperList()
@@ -783,6 +780,7 @@ const handleDelete = (record: PaperRecord) => {
           message.error('删除失败：' + res.data.message)
         }
       } catch (error) {
+        console.error(error)
         message.error('删除请求失败')
       }
     }
@@ -806,6 +804,7 @@ const handleBatchDelete = () => {
         selectedRowKeys.value = []
         loadPaperList()
       } catch (error) {
+        console.error(error)
         message.error('批量删除请求失败')
       }
     }
@@ -885,7 +884,7 @@ const loadPaperQuestions = async (paperId: number) => {
     } else {
       message.error('加载试卷试题失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('加载试卷试题请求失败')
   } finally {
     questionLoading.value = false
@@ -912,7 +911,7 @@ const handleAddQuestions = () => {
 const loadAvailableQuestions = async () => {
   availableQuestionsLoading.value = true
   try {
-    const query: any = {
+    const query: Record<string, unknown> = {
       pageNum: availableQuestionsPagination.current,
       pageSize: availableQuestionsPagination.pageSize
     }
@@ -946,7 +945,7 @@ const loadAvailableQuestions = async () => {
         message.error('加载试题列表失败：' + res.data.message)
       }
     }
-  } catch (error) {
+  } catch {
     message.error('加载试题列表请求失败')
   } finally {
     availableQuestionsLoading.value = false
@@ -958,7 +957,7 @@ const handleSearchQuestions = () => {
   loadAvailableQuestions()
 }
 
-const handleSelectQuestionTableChange = (pag: any) => {
+const handleSelectQuestionTableChange = (pag: { current: number; pageSize: number }) => {
   availableQuestionsPagination.current = pag.current
   availableQuestionsPagination.pageSize = pag.pageSize
   loadAvailableQuestions()
@@ -980,7 +979,6 @@ const handleSelectQuestionOk = async () => {
   try {
     const currentSort = currentPaperQuestions.value.length + 1
     for (const questionId of selectedQuestionKeys.value) {
-      const question = availableQuestions.value.find(q => q.id === questionId)
       const res = await addQuestionToPaper({
         paperId: currentPaperId.value,
         questionId: questionId,
@@ -997,7 +995,7 @@ const handleSelectQuestionOk = async () => {
     message.success('添加试题成功')
     selectQuestionVisible.value = false
     await loadPaperQuestions(currentPaperId.value)
-  } catch (error) {
+  } catch {
     message.error('添加试题请求失败')
   } finally {
     selectQuestionLoading.value = false
@@ -1025,7 +1023,7 @@ const handleRemoveQuestion = (record: PaperQuestionVO) => {
         } else {
           message.error('移除失败：' + res.data.message)
         }
-      } catch (error) {
+      } catch {
         message.error('移除请求失败')
       }
     }
@@ -1044,7 +1042,7 @@ const handleSortChange = async (record: PaperQuestionVO) => {
       message.error('更新排序失败：' + res.data.message)
       await loadPaperQuestions(currentPaperId.value!)
     }
-  } catch (error) {
+  } catch {
     message.error('更新排序请求失败')
     await loadPaperQuestions(currentPaperId.value!)
   }
@@ -1062,7 +1060,7 @@ const handleScoreChange = async (record: PaperQuestionVO) => {
       message.error('更新分值失败：' + res.data.message)
       await loadPaperQuestions(currentPaperId.value!)
     }
-  } catch (error) {
+  } catch {
     message.error('更新分值请求失败')
     await loadPaperQuestions(currentPaperId.value!)
   }

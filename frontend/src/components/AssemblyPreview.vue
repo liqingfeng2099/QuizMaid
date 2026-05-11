@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
-import { message, Modal } from 'ant-design-vue'
-import { saveAssembleResult, addPaperStrategy } from '@/api/shijuanguanli'
-import { addQuestionToPaper, removeQuestionFromPaper, updatePaperQuestion } from '@/api/shijuanshitiguanlianguanli'
+import { ref, reactive, computed } from 'vue'
+import { message } from 'ant-design-vue'
+import { saveAssembleResult } from '@/api/shijuanguanli'
 import { listQuestionByPage } from '@/api/shitiguanli'
-import { useLoginUserStore } from '@/stores/loginUser'
 
 const props = defineProps<{
   result: API.AssemblyResultVO
@@ -16,7 +14,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits(['back', 'done'])
-const loginUserStore = useLoginUserStore()
 
 // ========== 题目列表 ==========
 interface QuestionItem {
@@ -26,6 +23,29 @@ interface QuestionItem {
   difficulty: number
   score: number
   compositeScore: number
+}
+
+// ========== 题库题目 ==========
+interface AvailableQuestion {
+  id?: number
+  questionMd5?: string
+  type?: number
+  subject?: string
+  chapter?: string
+  difficulty?: number
+  knowledgePoints?: string
+  tags?: string
+  content?: string
+  options?: string
+  answer?: string
+  analysis?: string
+  creatorId?: number
+  status?: number
+  correctCount?: number
+  totalCount?: number
+  accuracy?: number
+  createTime?: string
+  updateTime?: string
 }
 const questions = ref<QuestionItem[]>([])
 const totalScore = ref(0)
@@ -46,9 +66,6 @@ totalScore.value = questions.value.reduce((s, q) => s + q.score, 0)
 function recalcTotal() {
   totalScore.value = questions.value.reduce((s, q) => s + q.score, 0)
 }
-
-// ========== 展开详情 ==========
-const expandedKeys = ref<number[]>([])
 
 function getTypeName(t: number) {
   return { 1: '单选', 2: '多选', 3: '填空', 4: '简答' }[t] || '未知'
@@ -94,7 +111,7 @@ function handleScoreChange() {
 
 // ========== 添加题目弹窗 ==========
 const addVisible = ref(false)
-const availableQuestions = ref<any[]>([])
+const availableQuestions = ref<AvailableQuestion[]>([])
 const addLoading = ref(false)
 const selectedAddKeys = ref<number[]>([])
 const addPagination = reactive({ current: 1, pageSize: 10, total: 0 })
@@ -124,7 +141,7 @@ function handleOpenAdd() {
 
 async function handleAddConfirm() {
   const existingIds = new Set(questions.value.map(q => q.questionId))
-  const toAdd = availableQuestions.value.filter(q => selectedAddKeys.value.includes(q.id) && !existingIds.has(q.id))
+  const toAdd = availableQuestions.value.filter(q => q.id != null && selectedAddKeys.value.includes(q.id) && !existingIds.has(q.id))
   for (const q of toAdd) {
     questions.value.push({
       questionId: q.id!,

@@ -90,7 +90,7 @@ import type { FormInstance } from 'ant-design-vue'
 
 interface UserRecord {
   id?: number
-  username: string
+  username?: string
   nickname?: string
   email?: string
   role?: string
@@ -190,13 +190,14 @@ const loadUserList = async () => {
       message.error('加载用户列表失败：' + res.data.message)
     }
   } catch (error) {
+    console.error(error)
     message.error('加载用户列表请求失败')
   } finally {
     loading.value = false
   }
 }
 
-const handleTableChange = (pag: any) => {
+const handleTableChange = (pag: { current: number; pageSize: number }) => {
   pagination.current = pag.current
   pagination.pageSize = pag.pageSize
   loadUserList()
@@ -235,6 +236,7 @@ const handleDelete = async (record: UserRecord) => {
       message.error('删除失败：' + res.data.message)
     }
   } catch (error) {
+    console.error(error)
     message.error('删除请求失败')
   }
 }

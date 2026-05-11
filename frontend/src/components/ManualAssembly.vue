@@ -143,6 +143,7 @@ async function handleGreedyAssemble() {
       assemblyError.value = res.data.message || '组卷失败'
     }
   } catch (e) {
+    console.error(e)
     assemblyError.value = '组卷请求失败'
   } finally {
     assembling.value = false
@@ -151,7 +152,7 @@ async function handleGreedyAssemble() {
 
 async function handleGeneticAssemble() {
   if (!paperName.value) { message.warning('请输入试卷名称'); return }
-  let sid = selectedStrategyId.value
+  const sid = selectedStrategyId.value
   if (!sid) {
     message.warning('遗传组卷需要先选择策略')
     return
@@ -167,6 +168,7 @@ async function handleGeneticAssemble() {
       assemblyError.value = res.data.message || '组卷失败'
     }
   } catch (e) {
+    console.error(e)
     assemblyError.value = '组卷请求失败'
   } finally {
     assembling.value = false

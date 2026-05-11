@@ -35,6 +35,7 @@ onMounted(async () => {
       router.push('/user/login')
     }
   } catch (error) {
+    console.error(error)
     message.error('GitHub登录请求失败')
     router.push('/user/login')
   }

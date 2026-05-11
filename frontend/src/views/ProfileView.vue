@@ -57,7 +57,7 @@ const handleUpdateProfile = async () => {
     } else {
       message.error('更新失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('更新请求失败')
   } finally {
     loading.value = false
@@ -89,7 +89,7 @@ const handleSendCode = async () => {
     } else {
       message.error('发送验证码失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('发送验证码请求失败')
   } finally {
     sendingCode.value = false
@@ -111,7 +111,7 @@ const handleBindEmail = async () => {
     } else {
       message.error('绑定失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('绑定请求失败')
   } finally {
     loading.value = false
@@ -143,7 +143,7 @@ const handlePasswordSendCode = async () => {
     } else {
       message.error('发送验证码失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('发送验证码请求失败')
   } finally {
     sendingCode.value = false
@@ -181,7 +181,7 @@ const handleResetPassword = async () => {
     } else {
       message.error('密码修改失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('密码修改请求失败')
   } finally {
     loading.value = false
