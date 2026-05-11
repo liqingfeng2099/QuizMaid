@@ -1,26 +1,30 @@
 package com.kanade.backend.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import cn.dev33.satoken.stp.StpUtil;
 import com.kanade.backend.common.BaseResponse;
 import com.kanade.backend.common.DeleteRequest;
 import com.kanade.backend.common.ResultUtils;
 import com.kanade.backend.exception.BusinessException;
 import com.kanade.backend.exception.ErrorCode;
-import com.kanade.backend.model.dto.AIPaperAssemblyDTO;
-import com.kanade.backend.model.dto.ExamPaperAddDTO;
-import com.kanade.backend.model.dto.ExamPaperQueryDTO;
-import com.kanade.backend.model.dto.ExamPaperStatusDTO;
-import com.kanade.backend.model.dto.ExamPaperUpdateDTO;
+import com.kanade.backend.mapper.PaperquestionMapper;
+import com.kanade.backend.model.dto.*;
 import com.kanade.backend.model.entity.ExamPaper;
-import com.kanade.backend.model.vo.AIPaperAssemblyResultVO;
-import com.kanade.backend.model.vo.ExamPaperVO;
+import com.kanade.backend.model.entity.Paperquestion;
+import com.kanade.backend.model.vo.*;
+import com.kanade.backend.service.AiPaperChatService;
 import com.kanade.backend.service.ExamPaperService;
 import com.mybatisflex.core.paginate.Page;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.*;
 
 @RestController
 @RequestMapping("/examPaper")
@@ -29,6 +33,8 @@ import org.springframework.web.bind.annotation.*;
 public class ExamPaperController {
 
     private final ExamPaperService examPaperService;
+    private final PaperquestionMapper paperquestionMapper;
+    private final AiPaperChatService aiPaperChatService;
 
     @PostMapping("/add")
     @SaCheckLogin
@@ -98,5 +104,127 @@ public class ExamPaperController {
         // 调用Service层
         AIPaperAssemblyResultVO result = examPaperService.aiAssemblePaper(assemblyDTO);
         return ResultUtils.success(result);
+    }
+
+    @PostMapping("/assemble/save")
+    @SaCheckLogin
+    @Operation(summary = "保存组卷结果为试卷")
+    @Transactional(rollbackFor = Exception.class)
+    public BaseResponse<ExamPaperVO> saveAssembleResult(@Valid @RequestBody AssemblySaveDTO saveDTO) {
+        Long userId = StpUtil.getLoginIdAsLong();
+
+        // 1. 创建试卷
+        ExamPaper paper = new ExamPaper();
+        paper.setPaperName(saveDTO.getPaperName());
+        paper.setSubject(saveDTO.getSubject() != null ? saveDTO.getSubject() : "综合");
+        paper.setTotalScore(0);
+        paper.setCreatorId(userId);
+        paper.setStatus(saveDTO.getStatus() != null ? saveDTO.getStatus() : 0);
+        paper.setStrategyId(saveDTO.getStrategyId());
+        paper.setPaperType(1); // 手动组卷
+        examPaperService.save(paper);
+
+        // 2. 批量创建题目关联
+        LocalDateTime now = LocalDateTime.now();
+        int totalScore = 0;
+        int sort = 1;
+        for (AssemblySaveDTO.QuestionItem item : saveDTO.getQuestions()) {
+            Paperquestion pq = Paperquestion.builder()
+                    .paperId(paper.getId())
+                    .questionId(item.getQuestionId())
+                    .questionScore(item.getQuestionScore())
+                    .sort(item.getSort() != null ? item.getSort() : sort++)
+                    .isAutoAdd(1)
+                    .createTime(now)
+                    .build();
+            paperquestionMapper.insert(pq);
+            totalScore += item.getQuestionScore();
+        }
+
+        // 3. 更新总分
+        paper.setTotalScore(totalScore);
+        examPaperService.updateById(paper);
+
+        // 4. 返回试卷详情
+        ExamPaperVO vo = examPaperService.getExamPaperVOById(paper.getId());
+        return ResultUtils.success(vo);
+    }
+
+    // ==================== AI增强组卷（任务5） ====================
+
+    @PostMapping("/ai/profile")
+    @SaCheckLogin
+    @Operation(summary = "获取用户学习画像（AI组卷个性化预填）")
+    public BaseResponse<AIProfileVO> getAIProfile() {
+        Long userId = StpUtil.getLoginIdAsLong();
+        AIProfileVO profile = examPaperService.buildUserProfile(userId);
+        return ResultUtils.success(profile);
+    }
+
+    @PostMapping("/ai/assemble/v2")
+    @SaCheckLogin
+    @Operation(summary = "增强版AI组卷（个性化提示词+重试机制+回显策略）")
+    public BaseResponse<AIAssemblyStrategyVO> aiAssemblePaperV2(@Valid @RequestBody AIPaperAssemblyV2DTO dto) {
+        AIAssemblyStrategyVO result = examPaperService.aiAssemblePaperV2(dto);
+        return ResultUtils.success(result);
+    }
+
+    @PostMapping("/ai/confirm")
+    @SaCheckLogin
+    @Operation(summary = "确认AI组卷方案并创建试卷")
+    @Transactional(rollbackFor = Exception.class)
+    public BaseResponse<ExamPaperVO> confirmAIAssembly(@RequestBody Map<String, Object> body) {
+        AIPaperAssemblyV2DTO dto = new AIPaperAssemblyV2DTO();
+        dto.setPaperName((String) body.get("paperName"));
+        dto.setSubject((String) body.get("subject"));
+        dto.setStatus(body.get("status") instanceof Number ? ((Number) body.get("status")).intValue() : 0);
+        dto.setTotalScore(body.get("totalScore") instanceof Number ? ((Number) body.get("totalScore")).intValue() : null);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> strategyMap = (Map<String, Object>) body.get("strategy");
+        AIAssemblyStrategyVO strategy = new AIAssemblyStrategyVO();
+        if (strategyMap != null && strategyMap.get("questionIds") instanceof List) {
+            @SuppressWarnings("unchecked")
+            List<Number> ids = (List<Number>) strategyMap.get("questionIds");
+            strategy.setQuestionIds(ids.stream().map(Number::longValue).collect(java.util.stream.Collectors.toList()));
+        }
+
+        ExamPaperVO vo = examPaperService.confirmAIAssembly(dto, strategy);
+        return ResultUtils.success(vo);
+    }
+
+    @PostMapping("/ai/chat/history")
+    @SaCheckLogin
+    @Operation(summary = "查询AI组卷对话记录")
+    public BaseResponse<List<AIChatVO>> getAIChatHistory(@RequestBody AIChatQueryDTO dto) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        List<AIChatVO> history = aiPaperChatService.getChatHistory(userId, dto.getLimit());
+        return ResultUtils.success(history);
+    }
+
+    @PostMapping("/ai/chat/reuse/{chatId}")
+    @SaCheckLogin
+    @Operation(summary = "从历史对话复用组卷策略")
+    public BaseResponse<AIAssemblyStrategyVO> reuseChatStrategy(@PathVariable Long chatId) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        AIChatVO chat = aiPaperChatService.getChatById(chatId, userId);
+        if (chat == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "对话记录不存在");
+        }
+        AIAssemblyStrategyVO strategy = new AIAssemblyStrategyVO();
+        try {
+            Map<String, Object> map = cn.hutool.json.JSONUtil.toBean(chat.getAiResponse(), Map.class);
+            Object idsObj = map.get("questionIds");
+            if (idsObj instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<Number> ids = (List<Number>) idsObj;
+                strategy.setQuestionIds(ids.stream().map(Number::longValue).collect(java.util.stream.Collectors.toList()));
+                strategy.setTotalQuestions(strategy.getQuestionIds().size());
+                strategy.setActualTotalScore(strategy.getTotalQuestions() * 10);
+            }
+        } catch (Exception e) {
+            strategy.setQuestionIds(java.util.Collections.emptyList());
+        }
+        return ResultUtils.success(strategy);
     }
 }

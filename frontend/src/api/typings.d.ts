@@ -460,4 +460,213 @@ declare namespace API {
     createTime?: string
     updateTime?: string
   }
+
+  // ===== [2026-05-10 新增] 手动组卷相关类型 =====
+
+  type MatchCountDTO = {
+    subject?: string
+    chapter?: string
+    difficulty?: number
+    types?: number[]
+    knowledgePoints?: string
+  }
+
+  type MatchCountVO = {
+    totalCount?: number
+    byType?: Record<string, number>
+    byDifficulty?: Record<string, number>
+  }
+
+  type BaseResponseMatchCountVO = {
+    code?: number
+    data?: MatchCountVO
+    message?: string
+  }
+
+  type AssemblySaveDTO = {
+    paperName?: string
+    subject?: string
+    status?: number
+    strategyId?: number
+    questions?: AssemblyQuestionItem[]
+  }
+
+  type AssemblyQuestionItem = {
+    questionId?: number
+    questionScore?: number
+    sort?: number
+  }
+
+  // 试卷策略相关
+  type PaperStrategyAddDTO = {
+    strategyName?: string
+    totalScore?: number
+    difficultyAvg?: number
+    duration?: number
+    questionTypeConfig?: string
+    difficultyConfig?: string
+    knowledgePointScope?: string
+    weights?: StrategyWeightDTO[]
+  }
+
+  type StrategyWeightDTO = {
+    weightType?: string
+    weightValue?: number
+  }
+
+  type PaperStrategyVO = {
+    id?: number
+    strategyName?: string
+    userId?: number
+    totalScore?: number
+    difficultyAvg?: number
+    duration?: number
+    questionTypeConfig?: string
+    difficultyConfig?: string
+    knowledgePointScope?: string
+    isDefault?: number
+    createTime?: string
+    updateTime?: string
+    weights?: StrategyWeightVO[]
+    weightSum?: number
+  }
+
+  type StrategyWeightVO = {
+    id?: number
+    strategyId?: number
+    weightType?: string
+    weightValue?: number
+  }
+
+  type BaseResponsePaperStrategyVO = {
+    code?: number
+    data?: PaperStrategyVO
+    message?: string
+  }
+
+  type BaseResponsePagePaperStrategyVO = {
+    code?: number
+    data?: PagePaperStrategyVO
+    message?: string
+  }
+
+  type PagePaperStrategyVO = {
+    records?: PaperStrategyVO[]
+    totalRow?: number
+  }
+
+  type PaperStrategyQueryDTO = {
+    pageNum?: number
+    pageSize?: number
+    strategyName?: string
+    difficultyAvg?: number
+    isDefault?: number
+  }
+
+  type AssemblyRequestDTO = {
+    strategyId?: number
+    subject?: string
+    chapter?: string
+    paperName?: string
+    paperStatus?: number
+  }
+
+  type AssemblyResultVO = {
+    questions?: AssemblyQuestionScoreVO[]
+    totalQuestions?: number
+    actualTotalScore?: number
+    dimensionResults?: Record<string, string>
+    fitness?: number
+    algorithmType?: string
+    degradeHints?: AssemblyDegradeHintDTO[]
+  }
+
+  type AssemblyQuestionScoreVO = {
+    questionId?: number
+    type?: number
+    content?: string
+    difficulty?: number
+    score?: number
+    compositeScore?: number
+  }
+
+  type AssemblyDegradeHintDTO = {
+    degradedIndicator?: string
+    originalConstraint?: string
+    degradedConstraint?: string
+    reason?: string
+  }
+
+  type BaseResponseAssemblyResultVO = {
+    code?: number
+    data?: AssemblyResultVO
+    message?: string
+  }
+
+  // ===== [2026-05-10 新增] AI增强组卷类型 =====
+
+  type AIPaperAssemblyV2DTO = {
+    paperName?: string
+    subject?: string
+    chapter?: string
+    difficulty?: number
+    totalScore?: number
+    status?: number
+    userRequirement?: string
+    usePersonalization?: boolean
+    includeWeakAreas?: boolean
+    previousChatId?: number
+  }
+
+  type AIAssemblyStrategyVO = {
+    difficultyAvg?: number
+    difficultyConfig?: { level?: number; ratio?: number }[]
+    questionTypeConfig?: { type?: number; count?: number; score?: number }[]
+    knowledgePointScope?: string
+    questionIds?: number[]
+    totalQuestions?: number
+    actualTotalScore?: number
+  }
+
+  type BaseResponseAIAssemblyStrategyVO = {
+    code?: number
+    data?: AIAssemblyStrategyVO
+    message?: string
+  }
+
+  type AIProfileVO = {
+    answerNum?: number
+    correctNum?: number
+    accuracy?: number
+    weakPoints?: { knowledgePoint?: string; accuracy?: number; totalCount?: number }[]
+  }
+
+  type BaseResponseAIProfileVO = {
+    code?: number
+    data?: AIProfileVO
+    message?: string
+  }
+
+  type AIChatVO = {
+    id?: number
+    userId?: number
+    paperId?: number
+    strategyId?: number
+    sessionRound?: number
+    chatContent?: string
+    aiResponse?: string
+    status?: number
+    retryCount?: number
+    createTime?: string
+  }
+
+  type BaseResponseListAIChatVO = {
+    code?: number
+    data?: AIChatVO[]
+    message?: string
+  }
+
+  type AIChatQueryDTO = {
+    limit?: number
+  }
 }
