@@ -222,6 +222,21 @@ CREATE TABLE `strategyWeight` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='【新表】组卷策略权重表';
 
 
+-- 11. 【新表】推荐反馈记录表
+CREATE TABLE `recommendFeedback` (
+    `id` bigint NOT NULL AUTO_INCREMENT COMMENT '反馈ID',
+    `userId` bigint NOT NULL COMMENT '用户ID',
+    `questionId` bigint NOT NULL COMMENT '推荐题目ID',
+    `knowledgePoints` varchar(500) DEFAULT NULL COMMENT '题目关联知识点',
+    `feedback` tinyint NOT NULL COMMENT '反馈 1-已掌握 2-仍困难',
+    `createTime` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `isDeleted` tinyint DEFAULT 0,
+    PRIMARY KEY (`id`),
+    KEY `idxUserId` (`userId`),
+    KEY `idxFeedback` (`feedback`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='【新表】推荐反馈记录表';
+
+
 -- ============================================================
 -- 第三部分：ALTER TABLE（给已有数据库补字段用）
 -- 如果使用上面的完整 CREATE TABLE，则无需执行本部分

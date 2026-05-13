@@ -13,4 +13,6 @@ public class ExportConfigDTO {
     private String titleAlign;
     private String scorePosition;
     private String exportType;
+    private Long templateId;
+    private Boolean editable;    // PDF可编辑模式(含表单填空域)
 }

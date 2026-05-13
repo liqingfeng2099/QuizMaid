@@ -16,6 +16,8 @@ public interface ExamPaperService extends IService<ExamPaper> {
 
     boolean updateStatus(Long id, Integer status);
 
+    ExamPaperVO copyExamPaper(Long id);
+
     boolean deleteExamPaper(Long id);
 
     ExamPaperVO getExamPaperVOById(Long id);

@@ -60,7 +60,7 @@ public class QuestionCacheServiceImpl implements QuestionCacheService {
         String redisKey = DETAIL_PREFIX + id;
         Object cachedValue = redisTemplate.opsForValue().get(redisKey);
         if (cachedValue != null) {
-            if (cachedValue instanceof String s && "NULL".equals(s)) {
+            if (cachedValue instanceof String && "NULL".equals(cachedValue)) {
                 questionDetailCache.put(id, nullMarker());
                 return null;
             }
@@ -107,7 +107,7 @@ public class QuestionCacheServiceImpl implements QuestionCacheService {
         String redisKey = LIST_PREFIX + cacheKey;
         Object cachedValue = redisTemplate.opsForValue().get(redisKey);
         if (cachedValue != null) {
-            if (cachedValue instanceof String s && "NULL".equals(s)) {
+            if (cachedValue instanceof String && "NULL".equals(cachedValue)) {
                 questionListCache.put(cacheKey, emptyPage());
                 return null;
             }

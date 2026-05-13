@@ -21,6 +21,9 @@
       </a-menu>
     </div>
     <div class="header-right">
+      <a-badge :count="unreadCount" :overflow-count="99" style="margin-right: 24px;">
+        <BellOutlined style="font-size: 20px; cursor: pointer; color: #555;" @click="handleOpenNotifications" />
+      </a-badge>
       <a-dropdown>
         <div class="user-info">
           <a-avatar :size="32">{{ loginUser.loginUser?.nickname?.charAt(0) || 'U' }}</a-avatar>
@@ -28,6 +31,9 @@
         </div>
         <template #overlay>
           <a-menu>
+            <a-menu-item key="notifications" @click="handleOpenNotifications">
+              系统通知
+            </a-menu-item>
             <a-menu-item key="logout">
               <a-button type="link" @click="handleLogout">退出登录</a-button>
             </a-menu-item>
@@ -35,22 +41,77 @@
         </template>
       </a-dropdown>
     </div>
+    <a-modal
+      v-model:open="notificationVisible"
+      title="系统通知"
+      :footer="null"
+      width="500px"
+    >
+      <a-list :data-source="notifications" :loading="notifLoading" size="small">
+        <template #renderItem="{ item }">
+          <a-list-item>
+            <a-list-item-meta>
+              <template #title>
+                <a-badge :dot="item.isRead === 0" :offset-x="0" :offset-y="4">
+                  {{ item.title }}
+                </a-badge>
+              </template>
+              <template #description>
+                {{ item.content }}
+                <br/><small>{{ item.createTime }}</small>
+              </template>
+            </a-list-item-meta>
+          </a-list-item>
+        </template>
+      </a-list>
+      <a-empty v-if="notifications.length === 0 && !notifLoading" description="暂无通知" />
+    </a-modal>
   </a-layout-header>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { BellOutlined } from '@ant-design/icons-vue'
 import { logout } from '@/api/userController'
 import { useLoginUserStore } from '@/stores/loginUser'
+import { getUnreadNotificationCount, getUnreadNotifications } from '@/api/shijuanguanli'
 
 const router = useRouter()
 const route = useRoute()
 const loginUser = useLoginUserStore()
 
+const notificationVisible = ref(false)
+const unreadCount = ref(0)
+const notifications = ref<any[]>([])
+const notifLoading = ref(false)
+
+const loadUnreadCount = async () => {
+  try {
+    const res = await getUnreadNotificationCount()
+    if (res.data.code === 0) {
+      unreadCount.value = res.data.data || 0
+    }
+  } catch (e) { /* ignore */ }
+}
+
+const handleOpenNotifications = async () => {
+  notificationVisible.value = true
+  notifLoading.value = true
+  try {
+    const res = await getUnreadNotifications()
+    if (res.data.code === 0) {
+      notifications.value = res.data.data || []
+    }
+  } catch (e) { /* ignore */ }
+  notifLoading.value = false
+}
+
 onMounted(() => {
   loginUser.fetchLoginUser()
+  loadUnreadCount()
+  setInterval(loadUnreadCount, 30000) // 每30秒轮询
 })
 
 const currentRoute = computed(() => {
@@ -135,5 +196,18 @@ const handleLogout = async () => {
 .nickname {
   color: #666;
   font-size: 14px;
+}
+
+/* 响应式：手机端隐藏部分菜单项，缩小间距 */
+@media (max-width: 768px) {
+  .global-header { padding: 0 8px; }
+  .header-left { gap: 8px; }
+  .logo .title { font-size: 14px; }
+  .logo img { height: 32px; }
+}
+
+@media (max-width: 480px) {
+  .logo .title { display: none; }
+  .header-right { gap: 4px; }
 }
 </style>

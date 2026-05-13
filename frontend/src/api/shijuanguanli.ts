@@ -195,10 +195,10 @@ export async function aiAssemblePaperV2(
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseAIAssemblyStrategyVO>('/examPaper/ai/assemble/v2', {
+    ...(options || {}),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     data: body,
-    ...(options || {}),
   })
 }
 
@@ -208,19 +208,19 @@ export async function confirmAIAssembly(
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseExamPaperVO>('/examPaper/ai/confirm', {
+    ...(options || {}),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     data: body,
-    ...(options || {}),
   })
 }
 
 /** 获取用户学习画像 POST /examPaper/ai/profile */
 export async function getAIProfile(options?: { [key: string]: any }) {
   return request<API.BaseResponseAIProfileVO>('/examPaper/ai/profile', {
+    ...(options || {}),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    ...(options || {}),
   })
 }
 
@@ -230,10 +230,10 @@ export async function getAIChatHistory(
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseListAIChatVO>('/examPaper/ai/chat/history', {
+    ...(options || {}),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     data: body,
-    ...(options || {}),
   })
 }
 
@@ -243,9 +243,9 @@ export async function reuseChatStrategy(
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseAIAssemblyStrategyVO>(`/examPaper/ai/chat/reuse/${chatId}`, {
+    ...(options || {}),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    ...(options || {}),
   })
 }
 
@@ -272,4 +272,44 @@ export async function listExportFiles() {
 }
 export async function deleteExportFile(index: number) {
   return request<API.BaseResponseBoolean>(`/examPaper/export/delete/${index}`, { method: 'POST' })
+}
+
+/** 复制试卷 POST /examPaper/copy/{id} */
+export async function copyExamPaper(id: number, options?: { [key: string]: any }) {
+  return request<API.BaseResponseExamPaperVO>(`/examPaper/copy/${id}`, {
+    method: 'POST',
+    ...(options || {}),
+  })
+}
+
+/** 分享试卷给用户 POST /paperShare/user/{paperId}/{targetUserId} */
+export async function sharePaperToUser(paperId: number, targetUserId: number) {
+  return request<API.BaseResponseLong>(`/paperShare/user/${paperId}/${targetUserId}`, {
+    method: 'POST',
+  })
+}
+
+/** 获取分享记录 GET /paperShare/paper/{paperId} */
+export async function getPaperShares(paperId: number) {
+  return request<API.BaseResponseListLong>(`/paperShare/paper/${paperId}`, { method: 'GET' })
+}
+
+/** 撤销分享 POST /paperShare/revoke/{shareId} */
+export async function revokeShare(shareId: number) {
+  return request<API.BaseResponseBoolean>(`/paperShare/revoke/${shareId}`, { method: 'POST' })
+}
+
+/** 获取未读通知数 GET /notification/count */
+export async function getUnreadNotificationCount() {
+  return request<API.BaseResponseInteger>('/notification/count', { method: 'GET' })
+}
+
+/** 获取未读通知 GET /notification/unread */
+export async function getUnreadNotifications() {
+  return request<API.BaseResponseListMapObjectObject>('/notification/unread', { method: 'GET' })
+}
+
+/** 标记通知已读 POST /notification/read/{id} */
+export async function markNotificationRead(id: number) {
+  return request<API.BaseResponseBoolean>(`/notification/read/${id}`, { method: 'POST' })
 }

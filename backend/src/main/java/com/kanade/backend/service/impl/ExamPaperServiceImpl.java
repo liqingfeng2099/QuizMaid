@@ -72,6 +72,10 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         if (old == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "试卷不存在");
         }
+        // 已发布试卷不可直接编辑，仅支持复制后修改
+        if (old.getStatus() != null && old.getStatus() == 1) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "已发布试卷不可直接编辑，请使用复制功能修改");
+        }
         // 校验权限：创建人才能修改
         Long currentUserId = StpUtil.getLoginIdAsLong();
         if (!old.getCreatorId().equals(currentUserId)) {
@@ -83,11 +87,96 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
     }
 
     @Override
-    public boolean updateStatus(Long id, Integer status) {
+    public boolean updateStatus(Long id, Integer newStatus) {
+        ExamPaper old = this.getById(id);
+        if (old == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "试卷不存在");
+        }
+        Long currentUserId = StpUtil.getLoginIdAsLong();
+        boolean isAdmin = StpUtil.hasRole("admin");
+        if (!isAdmin && !old.getCreatorId().equals(currentUserId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "无权修改他人试卷");
+        }
+
+        int current = old.getStatus() != null ? old.getStatus() : 0;
+        if (!isValidStatusTransition(current, newStatus)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "无效的状态切换：" + getStatusName(current) + " → " + getStatusName(newStatus) +
+                    "。允许的切换：草稿→已发布→已归档→已停用");
+        }
+
         ExamPaper paper = new ExamPaper();
         paper.setId(id);
-        paper.setStatus(status);
-        return updateExamPaper(paper); // 复用权限校验
+        paper.setStatus(newStatus);
+        return this.updateById(paper);
+    }
+
+    /** 状态切换规则：0 草稿 → 1 已发布 → 2 已归档 → 3 已停用 */
+    private boolean isValidStatusTransition(int from, int to) {
+        if (from == to) return true;
+        if (from == 0 && to == 1) return true; // 草稿→已发布
+        if (from == 1 && to == 2) return true; // 已发布→已归档
+        if (from == 2 && to == 3) return true; // 已归档→已停用
+        if (from == 0 && to == 2) return true; // 草稿→已归档
+        if (from == 1 && to == 3) return true; // 已发布→已停用
+        if (from == 2 && to == 1) return true; // 已归档→已发布（重新启用）
+        return false;
+    }
+
+    private String getStatusName(Integer status) {
+        if (status == null) return "未知";
+        switch (status) {
+            case 0: return "草稿";
+            case 1: return "已发布";
+            case 2: return "已归档";
+            case 3: return "已停用";
+            default: return "未知";
+        }
+    }
+
+    @Override
+    public ExamPaperVO copyExamPaper(Long id) {
+        ExamPaper old = this.getById(id);
+        if (old == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "试卷不存在");
+        }
+        Long currentUserId = StpUtil.getLoginIdAsLong();
+        boolean isAdmin = StpUtil.hasRole("admin");
+        if (!isAdmin && !old.getCreatorId().equals(currentUserId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "无权复制他人试卷");
+        }
+
+        // 复制试卷（新状态为草稿）
+        ExamPaper copy = new ExamPaper();
+        BeanUtils.copyProperties(old, copy, "id", "createTime", "updateTime", "isDeleted");
+        copy.setPaperName(old.getPaperName() + " (副本)");
+        copy.setCreatorId(currentUserId);
+        copy.setStatus(0); // 草稿
+        copy.setExportStatus(0);
+        this.save(copy);
+
+        // 复制题目关联
+        QueryWrapper qw = QueryWrapper.create().eq("paperId", id).orderBy("sort", true);
+        List<Paperquestion> pqList = paperquestionMapper.selectListByQuery(qw);
+        if (!pqList.isEmpty()) {
+            LocalDateTime now = LocalDateTime.now();
+            int totalScore = 0;
+            for (Paperquestion pq : pqList) {
+                Paperquestion newPq = new Paperquestion();
+                newPq.setPaperId(copy.getId());
+                newPq.setQuestionId(pq.getQuestionId());
+                newPq.setQuestionScore(pq.getQuestionScore());
+                newPq.setSort(pq.getSort());
+                newPq.setIsAutoAdd(0);
+                newPq.setCreateTime(now);
+                paperquestionMapper.insert(newPq);
+                totalScore += pq.getQuestionScore() != null ? pq.getQuestionScore() : 0;
+            }
+            copy.setTotalScore(totalScore);
+            this.updateById(copy);
+        }
+
+        return getExamPaperVOById(copy.getId());
     }
 
     @Override
@@ -100,7 +189,6 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         if (!paper.getCreatorId().equals(currentUserId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "无权删除他人试卷");
         }
-        // 逻辑删除，MyBatis-Flex 自动处理
         return this.removeById(id);
     }
 
@@ -118,18 +206,29 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         List<Paperquestion> relations = paperquestionMapper.selectListWithRelationsByQuery(queryWrapper);
         if (!relations.isEmpty()) {
             List<Long> questionIds = relations.stream().map(Paperquestion::getQuestionId).collect(Collectors.toList());
-            List<Question> questions = questionService.listByIds(questionIds);
+            // listByIds 会自动过滤 isDeleted=0 的题目，用于判断题目是否有效
+            List<Question> activeQuestions = questionService.listByIds(questionIds);
+            Set<Long> activeIds = activeQuestions.stream().map(Question::getId).collect(Collectors.toSet());
+            // 构建 id→Question 的映射（包含有效题目）
+            Map<Long, Question> questionMap = new HashMap<>();
+            for (Question q : activeQuestions) {
+                questionMap.put(q.getId(), q);
+            }
             List<PaperQuestionVO> questionVOs = relations.stream().map(rel -> {
                 PaperQuestionVO qvo = new PaperQuestionVO();
                 qvo.setId(rel.getId());
                 qvo.setQuestionId(rel.getQuestionId());
                 qvo.setQuestionScore(rel.getQuestionScore());
                 qvo.setSort(rel.getSort());
-                // 补充题干和题型
-                questions.stream().filter(q -> q.getId().equals(rel.getQuestionId())).findFirst().ifPresent(q -> {
+                Question q = questionMap.get(rel.getQuestionId());
+                if (q != null && activeIds.contains(rel.getQuestionId())) {
+                    qvo.setQuestionStatus(0); // 正常
                     qvo.setQuestionContent(q.getContent());
                     qvo.setType(q.getType());
-                });
+                } else {
+                    qvo.setQuestionStatus(1); // 已失效
+                    qvo.setQuestionContent("[题目已失效]");
+                }
                 return qvo;
             }).collect(Collectors.toList());
             vo.setQuestions(questionVOs);
@@ -501,7 +600,8 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
 
         // 创建试卷
         ExamPaper paper = new ExamPaper();
-        paper.setPaperName(dto.getPaperName());
+        paper.setPaperName(dto.getPaperName() != null && !dto.getPaperName().isBlank()
+                ? dto.getPaperName() : "AI组卷-" + System.currentTimeMillis());
         paper.setSubject(dto.getSubject() != null ? dto.getSubject() : "综合");
         paper.setTotalScore(dto.getTotalScore() != null ? dto.getTotalScore() : 0);
         paper.setCreatorId(userId);

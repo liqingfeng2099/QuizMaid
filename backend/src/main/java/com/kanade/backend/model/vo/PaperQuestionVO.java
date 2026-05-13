@@ -10,4 +10,5 @@ public class PaperQuestionVO {
     private Integer questionScore;
     private Integer sort;
     private Integer type;           // 题型，方便前端显示
+    private Integer questionStatus; // 题目状态 0-正常 1-已失效(被逻辑删除)
 }

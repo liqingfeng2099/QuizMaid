@@ -86,8 +86,16 @@
           </template>
           <template v-if="column.key === 'action'">
             <a-space>
-              <a-button type="link" size="small" @click="handleEdit(record)">
+              <a-button
+                v-if="record.status !== 1"
+                type="link" size="small" @click="handleEdit(record)"
+              >
                 编辑
+              </a-button>
+              <a-button
+                type="link" size="small" @click="handleCopy(record)"
+              >
+                复制
               </a-button>
               <a-button type="link" size="small" danger @click="handleDelete(record)">
                 删除
@@ -97,6 +105,14 @@
               </a-button>
               <a-button type="link" size="small" @click="exportPid = record.id; exportPname = record.paperName; exportVisible = true">
                 导出
+              </a-button>
+              <a-button
+                v-if="record.status === 1"
+                type="link" size="small"
+                style="color: #52c41a;"
+                @click="handleStartExam(record)"
+              >
+                考试
               </a-button>
             </a-space>
           </template>
@@ -409,6 +425,7 @@ import { message, Modal } from 'ant-design-vue'
 import {
   addExamPaper,
   deleteExamPaper,
+  copyExamPaper,
   listExamPaperByPage,
   updateExamPaper,
   getExamPaperById,
@@ -777,6 +794,10 @@ const handleAdd = () => {
 }
 
 const handleEdit = (record: PaperRecord) => {
+  if (record.status === 1) {
+    message.warning('已发布试卷不可直接编辑，请使用复制功能修改')
+    return
+  }
   isEdit.value = true
   modalTitle.value = '编辑试卷'
   formState.id = record.id
@@ -785,6 +806,26 @@ const handleEdit = (record: PaperRecord) => {
   formState.totalScore = record.totalScore || 100
   formState.status = record.status || 0
   modalVisible.value = true
+}
+
+const handleCopy = async (record: PaperRecord) => {
+  if (!record.id) return
+  try {
+    const res = await copyExamPaper(record.id)
+    if (res.data.code === 0) {
+      message.success('复制成功，已创建试卷副本（状态：草稿）')
+      loadPaperList()
+    } else {
+      message.error('复制失败：' + res.data.message)
+    }
+  } catch (error) {
+    console.error(error)
+    message.error('复制请求失败')
+  }
+}
+
+const handleStartExam = (record: PaperRecord) => {
+  router.push({ path: '/exam', query: { paperId: record.id } })
 }
 
 const handleDelete = (record: PaperRecord) => {

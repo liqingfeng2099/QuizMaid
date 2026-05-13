@@ -81,6 +81,14 @@ public class ExamPaperController {
         return ResultUtils.success(result);
     }
 
+    @PostMapping("/copy/{id}")
+    @SaCheckLogin
+    @Operation(summary = "复制试卷（含题目关联），新试卷状态为草稿")
+    public BaseResponse<ExamPaperVO> copyExamPaper(@PathVariable Long id) {
+        ExamPaperVO vo = examPaperService.copyExamPaper(id);
+        return ResultUtils.success(vo);
+    }
+
     @GetMapping("/get/{id}")
     @SaCheckLogin
     @Operation(summary = "根据ID获取试卷详情（含试题列表）")
@@ -173,24 +181,73 @@ public class ExamPaperController {
     @SaCheckLogin
     @Operation(summary = "确认AI组卷方案并创建试卷")
     @Transactional(rollbackFor = Exception.class)
-    public BaseResponse<ExamPaperVO> confirmAIAssembly(@RequestBody Map<String, Object> body) {
-        AIPaperAssemblyV2DTO dto = new AIPaperAssemblyV2DTO();
-        dto.setPaperName((String) body.get("paperName"));
-        dto.setSubject((String) body.get("subject"));
-        dto.setStatus(body.get("status") instanceof Number ? ((Number) body.get("status")).intValue() : 0);
-        dto.setTotalScore(body.get("totalScore") instanceof Number ? ((Number) body.get("totalScore")).intValue() : null);
+    public BaseResponse<ExamPaperVO> confirmAIAssembly(jakarta.servlet.http.HttpServletRequest request) throws java.io.IOException {
+        Map<String, Object> body = parseJsonOrForm(request);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> strategyMap = (Map<String, Object>) body.get("strategy");
+        AIPaperAssemblyV2DTO dto = new AIPaperAssemblyV2DTO();
+        dto.setPaperName(getString(body, "paperName"));
+        dto.setSubject(getString(body, "subject"));
+        dto.setStatus(getInt(body, "status", 0));
+        dto.setTotalScore(getInt(body, "totalScore", null));
+
+        // 解析 strategy（可能是 Map 或 JSON 字符串）
         AIAssemblyStrategyVO strategy = new AIAssemblyStrategyVO();
-        if (strategyMap != null && strategyMap.get("questionIds") instanceof List) {
+        Object strategyObj = body.get("strategy");
+        if (strategyObj instanceof Map) {
             @SuppressWarnings("unchecked")
-            List<Number> ids = (List<Number>) strategyMap.get("questionIds");
-            strategy.setQuestionIds(ids.stream().map(Number::longValue).collect(java.util.stream.Collectors.toList()));
+            Map<String, Object> sMap = (Map<String, Object>) strategyObj;
+            parseStrategyIds(sMap, strategy);
+        } else if (strategyObj instanceof String) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> sMap = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue((String) strategyObj, Map.class);
+                parseStrategyIds(sMap, strategy);
+            } catch (Exception ignored) {}
         }
 
         ExamPaperVO vo = examPaperService.confirmAIAssembly(dto, strategy);
         return ResultUtils.success(vo);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseJsonOrForm(jakarta.servlet.http.HttpServletRequest request) throws java.io.IOException {
+        byte[] raw = request.getInputStream().readAllBytes();
+        if (raw.length > 0) {
+            String text = new String(raw, java.nio.charset.StandardCharsets.UTF_8).trim();
+            if (text.startsWith("{")) {
+                try { return new com.fasterxml.jackson.databind.ObjectMapper().readValue(text, Map.class); } catch (Exception ignored) {}
+            }
+        }
+        Map<String, Object> map = new LinkedHashMap<>();
+        java.util.Enumeration<String> names = request.getParameterNames();
+        while (names.hasMoreElements()) {
+            String name = names.nextElement();
+            map.put(name, request.getParameter(name));
+        }
+        return map;
+    }
+
+    private String getString(Map<String, Object> map, String key) {
+        Object val = map.get(key);
+        return val != null ? val.toString() : null;
+    }
+
+    private Integer getInt(Map<String, Object> map, String key, Integer defaultVal) {
+        Object val = map.get(key);
+        if (val instanceof Number) return ((Number) val).intValue();
+        if (val instanceof String) {
+            try { return Integer.parseInt((String) val); } catch (NumberFormatException e) { return defaultVal; }
+        }
+        return defaultVal;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void parseStrategyIds(Map<String, Object> sMap, AIAssemblyStrategyVO strategy) {
+        if (sMap != null && sMap.get("questionIds") instanceof List) {
+            List<Number> ids = (List<Number>) sMap.get("questionIds");
+            strategy.setQuestionIds(ids.stream().map(Number::longValue).collect(java.util.stream.Collectors.toList()));
+        }
     }
 
     @PostMapping("/ai/chat/history")
