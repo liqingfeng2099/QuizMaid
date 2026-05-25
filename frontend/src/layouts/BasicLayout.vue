@@ -36,4 +36,26 @@ import GlobalFooter from '@/components/GlobalFooter.vue'
   padding: 24px;
   min-height: 280px;
 }
+
+/* 平板端适配 */
+@media (max-width: 992px) {
+  .content {
+    margin: 64px 16px 52px;
+    padding: 16px;
+  }
+  .site-layout-content {
+    padding: 16px;
+  }
+}
+
+/* 手机端适配 */
+@media (max-width: 768px) {
+  .content {
+    margin: 56px 8px 48px;
+    padding: 12px;
+  }
+  .site-layout-content {
+    padding: 12px;
+  }
+}
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import * as echarts from 'echarts'
 import {
   updateSelf,
   bindEmail,
@@ -8,6 +9,7 @@ import {
   sendEmail,
 } from '@/api/userController'
 import { useLoginUserStore } from '@/stores/loginUser'
+import { getPersonalStats, exportPersonalStats } from '@/api/gerentongji'
 
 const loginUserStore = useLoginUserStore()
 
@@ -33,8 +35,111 @@ const passwordForm = reactive({
   checkPassword: '',
 })
 
+// ===== 学习统计 =====
+const statsLoading = ref(false)
+const statsPeriod = ref('30d')
+const statsSubject = ref<string | undefined>(undefined)
+const statSubjects = ['数学','语文','英语','物理','化学','生物','历史','地理','政治']
+const personalStats = ref<API.PersonalStatsVO | null>(null)
+const typeChartRef = ref<HTMLElement | null>(null)
+const diffChartRef = ref<HTMLElement | null>(null)
+const kpChartRef = ref<HTMLElement | null>(null)
+const trendChartRef = ref<HTMLElement | null>(null)
+let charts: echarts.ECharts[] = []
+
+const loadPersonalStats = async () => {
+  statsLoading.value = true
+  try {
+    const res = await getPersonalStats({ subject: statsSubject.value, period: statsPeriod.value })
+    if (res.data.code === 0 && res.data.data) {
+      personalStats.value = res.data.data
+      nextTick(() => renderCharts())
+    }
+  } catch (e) { /* ignore */ }
+  statsLoading.value = false
+}
+
+const handleExportPersonalStats = async () => {
+  try {
+    const res = await exportPersonalStats({ subject: statsSubject.value, period: statsPeriod.value })
+    const blob = new Blob([res.data as any], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = '个人统计.xlsx'; a.click()
+    window.URL.revokeObjectURL(url)
+  } catch (e) { message.error('导出失败') }
+}
+
+const renderCharts = () => {
+  charts.forEach(c => c.dispose()); charts = []
+  const s = personalStats.value
+  if (!s) return
+
+  // 题型柱状图
+  if (typeChartRef.value && s.byType) {
+    const c = echarts.init(typeChartRef.value); charts.push(c)
+    c.setOption({
+      title: { text: '各题型正确率', textStyle: { fontSize: 14 } },
+      tooltip: {}, toolbox: { feature: { saveAsImage: { title: '保存' } } },
+      xAxis: { type: 'category', data: s.byType.map(t => t.dimensionKey) },
+      yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
+      series: [{ type: 'bar', data: s.byType.map(t => t.correctRate || 0), itemStyle: { color: '#1890ff' } }]
+    })
+  }
+  // 难度饼图
+  if (diffChartRef.value && s.byDifficulty) {
+    const c = echarts.init(diffChartRef.value); charts.push(c)
+    c.setOption({
+      title: { text: '难度分布', textStyle: { fontSize: 14 } },
+      tooltip: {}, toolbox: { feature: { saveAsImage: { title: '保存' } } },
+      series: [{
+        type: 'pie', radius: ['40%', '70%'],
+        data: s.byDifficulty.map(d => ({ name: d.dimensionKey, value: d.totalCount })),
+        label: { formatter: '{b}: {c}题' }
+      }]
+    })
+  }
+  // 知识点横向条形图
+  if (kpChartRef.value && s.byKnowledge) {
+    const c = echarts.init(kpChartRef.value); charts.push(c)
+    const top = (s.byKnowledge || []).slice(0, 15)
+    c.setOption({
+      title: { text: '知识点正确率(Top15)', textStyle: { fontSize: 14 } },
+      tooltip: {}, toolbox: { feature: { saveAsImage: { title: '保存' } } },
+      grid: { left: '3%', right: '8%', containLabel: true },
+      xAxis: { type: 'value', max: 100 },
+      yAxis: { type: 'category', data: top.map(k => k.dimensionKey).reverse() },
+      series: [{ type: 'bar', data: top.map(k => k.correctRate || 0).reverse(), itemStyle: { color: '#722ed1' } }]
+    })
+  }
+  // 趋势折线图
+  if (trendChartRef.value && s.trend) {
+    const c = echarts.init(trendChartRef.value); charts.push(c)
+    c.setOption({
+      title: { text: '正确率趋势', textStyle: { fontSize: 14 } },
+      tooltip: { trigger: 'axis' },
+      toolbox: { feature: { saveAsImage: { title: '保存' }, dataZoom: {} } },
+      xAxis: { type: 'category', data: s.trend.map(t => t.period), axisLabel: { rotate: 45 } },
+      yAxis: { type: 'value', max: 100 },
+      series: [{
+        type: 'line', data: s.trend.map(t => t.accuracy || 0), smooth: true,
+        areaStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1,[
+          {offset:0,color:'rgba(24,144,255,0.3)'},{offset:1,color:'rgba(24,144,255,0.05)'}]) }
+      }]
+    })
+  }
+}
+
 onMounted(() => {
   initProfile()
+})
+
+// 切换到学习统计tab时自动加载
+watch(activeTab, (tab) => {
+  if (tab === 'stats') loadPersonalStats()
+})
+
+onUnmounted(() => {
+  charts.forEach(c => c.dispose())
 })
 
 const initProfile = () => {
@@ -57,7 +162,7 @@ const handleUpdateProfile = async () => {
     } else {
       message.error('更新失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('更新请求失败')
   } finally {
     loading.value = false
@@ -89,7 +194,7 @@ const handleSendCode = async () => {
     } else {
       message.error('发送验证码失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('发送验证码请求失败')
   } finally {
     sendingCode.value = false
@@ -111,7 +216,7 @@ const handleBindEmail = async () => {
     } else {
       message.error('绑定失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('绑定请求失败')
   } finally {
     loading.value = false
@@ -143,7 +248,7 @@ const handlePasswordSendCode = async () => {
     } else {
       message.error('发送验证码失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('发送验证码请求失败')
   } finally {
     sendingCode.value = false
@@ -181,7 +286,7 @@ const handleResetPassword = async () => {
     } else {
       message.error('密码修改失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('密码修改请求失败')
   } finally {
     loading.value = false
@@ -280,6 +385,38 @@ const handleResetPassword = async () => {
               </a-button>
             </a-form-item>
           </a-form>
+        </a-tab-pane>
+        <a-tab-pane key="stats" tab="学习统计">
+          <div style="margin-bottom: 12px;">
+            <a-space>
+              <a-select v-model:value="statsPeriod" style="width: 120px;" @change="loadPersonalStats">
+                <a-select-option value="7d">近7天</a-select-option>
+                <a-select-option value="30d">近30天</a-select-option>
+                <a-select-option value="90d">近90天</a-select-option>
+                <a-select-option value="all">全部</a-select-option>
+              </a-select>
+              <a-select v-model:value="statsSubject" style="width: 120px;" allow-clear placeholder="全部学科" @change="loadPersonalStats">
+                <a-select-option v-for="s in statSubjects" :key="s" :value="s">{{ s }}</a-select-option>
+              </a-select>
+              <a-button type="primary" size="small" @click="loadPersonalStats">刷新</a-button>
+              <a-button size="small" @click="handleExportPersonalStats">导出Excel</a-button>
+            </a-space>
+          </div>
+          <a-spin :spinning="statsLoading">
+            <a-row :gutter="16" style="margin-bottom: 16px;">
+              <a-col :span="8"><a-statistic title="总答题数" :value="personalStats?.totalAnswers || 0" /></a-col>
+              <a-col :span="8"><a-statistic title="正确数" :value="personalStats?.totalCorrect || 0" /></a-col>
+              <a-col :span="8"><a-statistic title="总正确率" :value="personalStats?.totalAccuracy || 0" suffix="%" :precision="1" /></a-col>
+            </a-row>
+            <a-row :gutter="16">
+              <a-col :span="12"><div ref="typeChartRef" style="height: 280px;"></div></a-col>
+              <a-col :span="12"><div ref="diffChartRef" style="height: 280px;"></div></a-col>
+            </a-row>
+            <a-row :gutter="16" style="margin-top: 16px;">
+              <a-col :span="12"><div ref="kpChartRef" style="height: 300px;"></div></a-col>
+              <a-col :span="12"><div ref="trendChartRef" style="height: 300px;"></div></a-col>
+            </a-row>
+          </a-spin>
         </a-tab-pane>
       </a-tabs>
     </a-card>

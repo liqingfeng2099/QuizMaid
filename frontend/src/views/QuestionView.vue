@@ -186,7 +186,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { UploadOutlined } from '@ant-design/icons-vue'
 import { addQuestion, deleteQuestion, updateQuestion, listQuestionByPage, listAllQuestionByPage } from '@/api/shitiguanli'
-import { uploadExcel, getImportStatus } from '@/api/questionImportController'
+import { uploadExcel } from '@/api/questionImportController'
 import { useLoginUserStore } from '@/stores/loginUser'
 import type { FormInstance } from 'ant-design-vue'
 import type { UploadFile, UploadProps } from 'ant-design-vue'
@@ -349,14 +349,14 @@ const loadQuestionList = async () => {
     } else {
       message.error('加载题目列表失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('加载题目列表请求失败')
   } finally {
     loading.value = false
   }
 }
 
-const handleTableChange = (pag: any) => {
+const handleTableChange = (pag: { current: number; pageSize: number }) => {
   pagination.current = pag.current
   pagination.pageSize = pag.pageSize
   loadQuestionList()
@@ -396,7 +396,7 @@ const beforeUpload: UploadProps['beforeUpload'] = (file) => {
   return isExcel
 }
 
-const handleFileChange = (info: any) => {
+const handleFileChange = (info: { file: UploadFile; fileList: UploadFile[] }) => {
   fileList.value = info.fileList
 }
 
@@ -406,10 +406,16 @@ const handleImportOk = async () => {
     return
   }
 
+  const file = fileList.value[0]
+  if (!file || !file.originFileObj) {
+    message.error('文件无效')
+    return
+  }
+
   importLoading.value = true
   try {
     const formData = new FormData()
-    formData.append('file', fileList.value[0].originFileObj!)
+    formData.append('file', file.originFileObj)
 
     const res = await uploadExcel(formData, {
       headers: {
@@ -427,25 +433,10 @@ const handleImportOk = async () => {
     } else {
       message.error('上传失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('上传请求失败')
   } finally {
     importLoading.value = false
-  }
-}
-
-// 检查导入状态
-const checkImportStatus = async (taskId: string) => {
-  try {
-    const res = await getImportStatus({ taskId })
-    if (res.data.code === 0) {
-      message.success('导入成功')
-      loadQuestionList()
-    } else {
-      message.error('导入失败：' + res.data.message)
-    }
-  } catch (error) {
-    message.error('查询导入状态失败')
   }
 }
 
@@ -479,7 +470,7 @@ const handleEdit = (record: QuestionRecord) => {
     } else {
       formState.tags = ''
     }
-  } catch (error) {
+  } catch {
     formState.tags = ''
   }
   formState.content = record.content || ''
@@ -500,7 +491,7 @@ const handleDelete = async (record: QuestionRecord) => {
     } else {
       message.error('删除失败：' + res.data.message)
     }
-  } catch (error) {
+  } catch {
     message.error('删除请求失败')
   }
 }
@@ -664,7 +655,7 @@ const parseTags = (tags?: string) => {
     // 尝试解析 JSON 字符串
     const parsedTags = JSON.parse(tags)
     return Array.isArray(parsedTags) ? parsedTags : []
-  } catch (error) {
+  } catch {
     // 如果解析失败，返回空数组
     return []
   }

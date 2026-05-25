@@ -6,6 +6,11 @@ const myAxios = axios.create({
   baseURL: 'http://localhost:8080/api',
   timeout: 60000,
   withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
+  transformRequest: [function (data, _headers) {
+    if (data instanceof FormData) return data
+    return JSON.stringify(data)
+  }],
 })
 
 // 全局请求拦截器

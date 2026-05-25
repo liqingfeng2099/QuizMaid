@@ -22,6 +22,10 @@
         <AuditOutlined />
         <span>考试中心</span>
       </a-menu-item>
+      <a-menu-item key="statistics">
+        <BarChartOutlined />
+        <span>成绩统计</span>
+      </a-menu-item>
       <a-menu-item key="error-book">
         <CloseCircleOutlined />
         <span>错题本</span>
@@ -48,6 +52,7 @@ import {
   ReadOutlined,
   AuditOutlined,
   CloseCircleOutlined,
+  BarChartOutlined,
   UserOutlined,
   SettingOutlined
 } from '@ant-design/icons-vue'

@@ -14,7 +14,10 @@ import com.kanade.backend.mapper.QuestionMapper;
 import com.kanade.backend.model.dto.QuestionQueryDTO;
 import com.kanade.backend.model.entity.Question;
 import com.kanade.backend.model.enums.TaskEnum;
+import com.kanade.backend.model.es.QuestionDocument;
 import com.kanade.backend.model.vo.QuestionVO;
+import com.kanade.backend.service.QuestionCacheService;
+import com.kanade.backend.service.QuestionEsService;
 import com.kanade.backend.service.QuestionService;
 import com.mybatisflex.core.logicdelete.LogicDeleteManager;
 import com.mybatisflex.core.paginate.Page;
@@ -25,12 +28,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import com.kanade.backend.utils.NormalizationUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.redisson.api.RLock;
 
 @Service
 @Slf4j
@@ -39,27 +45,30 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
     @Resource
     private AiServiceFactory aiServiceFactory;
 
+    @Resource
+    private QuestionCacheService questionCacheService;
+
+    @Resource
+    private QuestionEsService questionEsService;
+
     @Override
     public Long addQuestion(Question question) {
         if (StrUtil.isBlank(question.getContent())) {
             throw new BusinessException(400, "题干不能为空");
         }
         String md5 = DigestUtil.md5Hex(question.getContent());
+        question.setCompositeMd5(NormalizationUtils.generateCompositeMd5(question));
 
-
-        // 查询所有数据（含已删除）
         Question existQuestion = LogicDeleteManager.execWithoutLogicDelete(() -> {
             QueryWrapper wrapper = QueryWrapper.create()
                     .eq(Question::getQuestionMd5, md5);
             return this.getOne(wrapper);
         });
 
-        // 1. 数据存在【未删除】→ 直接抛重复错误
         if (existQuestion != null && existQuestion.getIsDeleted() == 0) {
             throw new BusinessException(400, "该试题已存在");
         }
 
-        // 2. 数据存在【已删除】→ 恢复数据
         if (existQuestion != null && existQuestion.getIsDeleted() == 1) {
             LogicDeleteManager.execWithoutLogicDelete(() -> {
                 existQuestion.setIsDeleted(0);
@@ -70,18 +79,17 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             return existQuestion.getId();
         }
 
-        // 3. 无数据 → 新增
         question.setQuestionMd5(md5);
         question.setCreatorId(StpUtil.getLoginIdAsLong());
         question.setStatus(question.getStatus() == null ? 1 : question.getStatus());
-
-
 
         this.save(question);
 
         if (question.getTags() == null || question.getKnowledgePoints() == null) {
             aiAddLabelAsync(question);
         }
+
+        syncQuestionToEsAsync(question);
 
         return question.getId();
     }
@@ -92,21 +100,18 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             throw new BusinessException(400, "题干不能为空");
         }
         String md5 = DigestUtil.md5Hex(question.getContent());
+        question.setCompositeMd5(NormalizationUtils.generateCompositeMd5(question));
 
-
-        // 查询所有数据（含已删除）
         Question existQuestion = LogicDeleteManager.execWithoutLogicDelete(() -> {
             QueryWrapper wrapper = QueryWrapper.create()
                     .eq(Question::getQuestionMd5, md5);
             return this.getOne(wrapper);
         });
 
-        // 1. 数据存在【未删除】→ 直接抛重复错误
         if (existQuestion != null && existQuestion.getIsDeleted() == 0) {
             throw new BusinessException(400, "该试题已存在");
         }
 
-        // 2. 数据存在【已删除】→ 恢复数据
         if (existQuestion != null && existQuestion.getIsDeleted() == 1) {
             LogicDeleteManager.execWithoutLogicDelete(() -> {
                 existQuestion.setIsDeleted(0);
@@ -117,18 +122,17 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             return existQuestion.getId();
         }
 
-        // 3. 无数据 → 新增
         question.setQuestionMd5(md5);
         question.setCreatorId(creatorId != null ? creatorId : StpUtil.getLoginIdAsLong());
         question.setStatus(question.getStatus() == null ? 1 : question.getStatus());
-
-
 
         this.save(question);
 
         if (question.getTags() == null || question.getKnowledgePoints() == null) {
             aiAddLabelAsync(question);
         }
+
+        syncQuestionToEsAsync(question);
 
         return question.getId();
     }
@@ -156,11 +160,30 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
         }
 
         question.setCreatorId(null);
-        return this.updateById(question);
+        boolean result = this.updateById(question);
+
+        // 清除缓存
+        if (result) {
+            questionCacheService.removeQuestionDetailCache(id);
+            // 异步同步到ES
+            syncQuestionToEsAsync(this.getById(id));
+        }
+
+        return result;
     }
 
     @Override
     public Page<QuestionVO> getQuestionPage(QuestionQueryDTO queryDTO) {
+        // 生成缓存key（基于查询条件）
+        String cacheKey = generateCacheKey(queryDTO);
+        
+        // 1. 先查缓存
+        Page<QuestionVO> cachedPage = questionCacheService.getCachedQuestionList(cacheKey);
+        if (cachedPage != null) {
+            return cachedPage;
+        }
+
+        // 2. 缓存未命中，查数据库
         QueryWrapper wrapper = QueryWrapper.create();
         if (queryDTO.getId() != null) {
             wrapper.eq("id", queryDTO.getId());
@@ -209,16 +232,84 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
 
         Page<QuestionVO> voPage = new Page<>(queryDTO.getPageNum(), queryDTO.getPageSize(), page.getTotalRow());
         voPage.setRecords(voList);
+
+        // 3. 写入缓存
+        questionCacheService.cacheQuestionList(cacheKey, voPage);
+
         return voPage;
+    }
+
+    /**
+     * 生成缓存key
+     */
+    private String generateCacheKey(QuestionQueryDTO queryDTO) {
+        return String.format("%d_%d_%s_%s_%d_%s_%s_%s_%d_%d_%s_%s",
+                queryDTO.getPageNum(),
+                queryDTO.getPageSize(),
+                queryDTO.getId(),
+                queryDTO.getType(),
+                queryDTO.getDifficulty(),
+                queryDTO.getSubject(),
+                queryDTO.getChapter(),
+                queryDTO.getKnowledgePoints(),
+                queryDTO.getTags(),
+                queryDTO.getContent(),
+                queryDTO.getCreatorId(),
+                queryDTO.getStatus(),
+                queryDTO.getSortField()
+        );
     }
 
     @Override
     public QuestionVO getQuestionVOById(Long id) {
+        // 1. 先查缓存
+        QuestionVO cachedVO = questionCacheService.getCachedQuestionDetail(id);
+        if (cachedVO != null) {
+            questionCacheService.recordQuestionAccess(id);
+            return cachedVO;
+        }
+
+        // 2. 缓存未命中，获取分布式锁防止击穿
+        RLock lock = questionCacheService.getDetailLock(id);
+        try {
+            if (lock.tryLock(3, 10, TimeUnit.SECONDS)) {
+                try {
+                    // 3. 双重检查缓存
+                    cachedVO = questionCacheService.getCachedQuestionDetail(id);
+                    if (cachedVO != null) {
+                        questionCacheService.recordQuestionAccess(id);
+                        return cachedVO;
+                    }
+
+                    // 4. 查询数据库
+                    Question question = this.getById(id);
+                    if (question == null) {
+                        questionCacheService.cacheQuestionDetail(id, null);
+                        throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "试题不存在");
+                    }
+                    QuestionVO vo = toVO(question);
+
+                    // 5. 写入缓存
+                    questionCacheService.cacheQuestionDetail(id, vo);
+                    questionCacheService.recordQuestionAccess(id);
+
+                    return vo;
+                } finally {
+                    lock.unlock();
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // 6. 获取锁失败，降级查数据库
         Question question = this.getById(id);
         if (question == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "试题不存在");
         }
-        return toVO(question);
+        QuestionVO vo = toVO(question);
+        questionCacheService.recordQuestionAccess(id);
+        return vo;
     }
 
     @Override
@@ -252,6 +343,10 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
 
         if (CollUtil.isNotEmpty(needInsertList)) {
             this.saveBatch(needInsertList);
+            // 异步同步新增试题到ES
+            for (Question q : needInsertList) {
+                syncQuestionToEsAsync(q);
+            }
         }
 
         int insertIndex = 0;
@@ -262,6 +357,22 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             }
         }
         return resultIdList;
+    }
+
+    @Override
+    public boolean deleteQuestion(Long id) {
+        boolean result = this.removeById(id);
+        if (result) {
+            questionCacheService.removeQuestionDetailCache(id);
+            CompletableFuture.runAsync(() -> {
+                try {
+                    questionEsService.deleteQuestionFromEs(id);
+                } catch (Exception e) {
+                    log.error("从ES删除试题失败, id: {}", id, e);
+                }
+            });
+        }
+        return result;
     }
 
     private QuestionVO toVO(Question question) {
@@ -277,6 +388,7 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
             throw new BusinessException(400, "题干不能为空");
         }
         String md5 = DigestUtil.md5Hex(question.getContent());
+        question.setCompositeMd5(NormalizationUtils.generateCompositeMd5(question));
 
         // 2. 查询重复数据（含已删除）
         Question existQuestion = LogicDeleteManager.execWithoutLogicDelete(() -> {
@@ -341,5 +453,41 @@ public class QuestionServiceImpl extends ServiceImpl<QuestionMapper, Question> i
                 // 异步线程异常，不影响主线程
             }
         });
+    }
+
+    /**
+     * 异步同步试题到ES
+     */
+    private void syncQuestionToEsAsync(Question question) {
+        if (question == null) {
+            return;
+        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                QuestionDocument document = convertToDocument(question);
+                questionEsService.syncQuestionToEs(document);
+            } catch (Exception e) {
+                log.error("异步同步试题到ES失败, id: {}", question.getId(), e);
+            }
+        });
+    }
+
+    /**
+     * 将Question转换为QuestionDocument
+     */
+    private QuestionDocument convertToDocument(Question question) {
+        QuestionDocument document = new QuestionDocument();
+        BeanUtils.copyProperties(question, document);
+        // knowledgePoints: comma-separated String → List<String>
+        if (StrUtil.isNotBlank(question.getKnowledgePoints())) {
+            document.setKnowledgePoints(
+                    StrUtil.split(question.getKnowledgePoints(), ",")
+                            .stream().map(String::trim).toList());
+        }
+        // tags: JSON array String → List<String>
+        if (StrUtil.isNotBlank(question.getTags())) {
+            document.setTags(cn.hutool.json.JSONUtil.toList(question.getTags(), String.class));
+        }
+        return document;
     }
 }

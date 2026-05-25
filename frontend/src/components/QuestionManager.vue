@@ -350,13 +350,14 @@ const loadQuestionList = async () => {
       message.error('加载题目列表失败：' + res.data.message)
     }
   } catch (error) {
+    console.error(error)
     message.error('加载题目列表请求失败')
   } finally {
     loading.value = false
   }
 }
 
-const handleTableChange = (pag: any) => {
+const handleTableChange = (pag: { current: number; pageSize: number }) => {
   pagination.current = pag.current
   pagination.pageSize = pag.pageSize
   loadQuestionList()
@@ -396,7 +397,7 @@ const beforeUpload: UploadProps['beforeUpload'] = (file) => {
   return isExcel
 }
 
-const handleFileChange = (info: any) => {
+const handleFileChange = (info: { fileList: UploadFile[] }) => {
   fileList.value = info.fileList
 }
 
@@ -406,10 +407,16 @@ const handleImportOk = async () => {
     return
   }
 
+  const file = fileList.value[0]
+  if (!file || !file.originFileObj) {
+    message.error('文件无效')
+    return
+  }
+
   importLoading.value = true
   try {
     const formData = new FormData()
-    formData.append('file', fileList.value[0].originFileObj!)
+    formData.append('file', file.originFileObj)
 
     const res = await uploadExcel(formData, {
       headers: {
@@ -428,6 +435,7 @@ const handleImportOk = async () => {
       message.error('上传失败：' + res.data.message)
     }
   } catch (error) {
+    console.error(error)
     message.error('上传请求失败')
   } finally {
     importLoading.value = false
@@ -435,6 +443,7 @@ const handleImportOk = async () => {
 }
 
 // 检查导入状态
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const checkImportStatus = async (taskId: string) => {
   try {
     const res = await getImportStatus({ taskId })
@@ -445,6 +454,7 @@ const checkImportStatus = async (taskId: string) => {
       message.error('导入失败：' + res.data.message)
     }
   } catch (error) {
+    console.error(error)
     message.error('查询导入状态失败')
   }
 }
@@ -480,6 +490,7 @@ const handleEdit = (record: QuestionRecord) => {
       formState.tags = ''
     }
   } catch (error) {
+    console.error(error)
     formState.tags = ''
   }
   formState.content = record.content || ''
@@ -501,6 +512,7 @@ const handleDelete = async (record: QuestionRecord) => {
       message.error('删除失败：' + res.data.message)
     }
   } catch (error) {
+    console.error(error)
     message.error('删除请求失败')
   }
 }
@@ -539,9 +551,9 @@ const handleModalOk = async () => {
         chapter: formState.chapter,
         difficulty: formState.difficulty,
         knowledgePoints: formState.knowledgePoints,
-        tags: formState.tags ? JSON.stringify(formState.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== '')) : '[]',
+        tags: formState.tags ? formState.tags.split(',').map(tag => tag.trim()).filter(tag => tag !== '') : [],
         content: formState.content,
-        options: formState.options ? formState.options : '[]',
+        options: formState.options ? JSON.parse(formState.options) : [],
         answer: formState.answer,
         analysis: formState.analysis,
         status: formState.status,
@@ -665,6 +677,7 @@ const parseTags = (tags?: string) => {
     const parsedTags = JSON.parse(tags)
     return Array.isArray(parsedTags) ? parsedTags : []
   } catch (error) {
+    console.error(error)
     // 如果解析失败，返回空数组
     return []
   }
