@@ -49,4 +49,5 @@ public interface UserService extends IService<User> {
 
     Integer getUserSignDays(long loginId);
     List<UserHeatMapVO> getUserHeatMap(long loginId);
+    void addUserQuestionCount(long userId, int count);
 }

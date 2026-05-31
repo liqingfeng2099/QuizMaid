@@ -9,6 +9,7 @@ import com.kanade.backend.model.vo.*;
 import com.kanade.backend.service.ErrorBookService;
 import com.kanade.backend.service.ExamRecordService;
 import com.kanade.backend.service.QuestionService;
+import com.kanade.backend.service.UserService;
 import com.kanade.backend.config.RabbitMQConfig;
 import com.kanade.backend.model.dto.QuestionCorrectionMessageDTO;
 import com.kanade.backend.model.entity.User;
@@ -42,6 +43,10 @@ public class ExamRecordServiceImpl extends ServiceImpl<UserexamrecordMapper, Use
     private final UserMapper userMapper;
     private final QuestionService questionService;
     private final ErrorBookService errorBookService;
+    private final UserService userService;
+
+    @Resource
+    private RabbitTemplate rabbitTemplate;
 
     @Resource
     private RabbitTemplate rabbitTemplate;
@@ -153,6 +158,9 @@ public class ExamRecordServiceImpl extends ServiceImpl<UserexamrecordMapper, Use
                 }
             }
         }
+
+        // 更新每日做题数 (热力图数据)
+        userService.addUserQuestionCount(userId, details.size());
 
         // 更新考试记录
         record.setEndTime(LocalDateTime.now());

@@ -25,9 +25,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.redisson.api.RBitSet;
 import org.redisson.api.RBucket;
-import org.redisson.api.RMap;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 
@@ -46,9 +46,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
 
     private final RedissonClient redissonClient;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final Set<Long> cleanedHeatmapUsers = new HashSet<>();
 
-    public UserServiceImpl(RedissonClient redissonClient) {
+    public UserServiceImpl(RedissonClient redissonClient, StringRedisTemplate stringRedisTemplate) {
         this.redissonClient = redissonClient;
+        this.stringRedisTemplate = stringRedisTemplate;
     }
 
     @Override
@@ -207,29 +210,23 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public List<UserHeatMapVO> getUserHeatMap(long loginId) {
-        // todo 过去365天 根据bitmap获取
-        // 1. 定义时间范围：近365天
         LocalDate endDate = LocalDate.now();
         LocalDate startDate = endDate.minusDays(364);
 
-        // 2. 【1次Redis请求】获取用户所有做题记录（Hash结构）
         String hashKey = Constant.getUserQuestionHashKey(loginId);
-        RMap<String, Long> questionMap = redissonClient.getMap(hashKey);
-        Map<String, Long> recordMap = questionMap.readAllMap();
 
-        // 3. 构建热力图数据
+        Map<Object, Object> rawMap = stringRedisTemplate.opsForHash().entries(hashKey);
+
         List<UserHeatMapVO> result = new ArrayList<>();
         LocalDate current = startDate;
         while (!current.isAfter(endDate)) {
             String dateStr = current.toString();
             UserHeatMapVO vo = new UserHeatMapVO();
-
-            // 基础日期
             vo.setDate(LocalDate.parse(dateStr));
-            // 获取当日做题数
-            int count = recordMap.getOrDefault(dateStr, 0L).intValue();
+
+            Object val = rawMap.get(dateStr);
+            int count = val != null ? Integer.parseInt(val.toString()) : 0;
             vo.setCount(count);
-            // 计算活跃度等级（颜色深浅）
             vo.setLevel(calculateHeatLevel(count));
 
             result.add(vo);
@@ -245,18 +242,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (count <= 30) return 3;
         return 4;
     }
-    // todo 记录做题数 hash
-    public void addUserQuestionCount(long userId) {
+    @Override
+    public void addUserQuestionCount(long userId, int count) {
+        if (count <= 0) return;
         String hashKey = Constant.getUserQuestionHashKey(userId);
         String date = LocalDate.now().toString();
 
-        // Redisson Hash 操作
-        RMap<String, Long> map = redissonClient.getMap(hashKey);
-        // 原子自增1，没有则自动创建
-        map.addAndGet(date, 1L);
+        // 首次写入前清除旧Kryo序列化数据
+        synchronized (cleanedHeatmapUsers) {
+            if (!cleanedHeatmapUsers.contains(userId)) {
+                stringRedisTemplate.delete(hashKey);
+                cleanedHeatmapUsers.add(userId);
+            }
+        }
 
-        // 可选：设置过期时间（1年）
-        map.expire(365, TimeUnit.DAYS);
+        stringRedisTemplate.opsForHash().increment(hashKey, date, count);
+        stringRedisTemplate.expire(hashKey, 365, TimeUnit.DAYS);
     }
 
     @Override

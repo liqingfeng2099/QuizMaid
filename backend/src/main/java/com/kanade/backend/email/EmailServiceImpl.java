@@ -63,7 +63,8 @@ public class EmailServiceImpl implements IEmailService {
             //正式发送邮件
             javaMailSender.send(messageHelper.getMimeMessage());
         } catch (Exception e) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, String.valueOf(e));
+            log.error("邮件发送失败: from={}, to={}, subject={}", form, to, subject, e);
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "邮件发送失败: " + e.getMessage());
         }
     }
 
