@@ -65,8 +65,7 @@ public class QuestionCorrectionConsumer {
             String userMessage = buildJudgePrompt(question, detail);
 
             AiService aiService = AiServiceFactory.getAiService(TaskEnum.JUDGE);
-            String aiResponse = aiService.generateQuestionJudge(userMessage);
-            JudgeResult result = JSONUtil.toBean(aiResponse, JudgeResult.class);
+            JudgeResult result = aiService.generateQuestionJudge(userMessage);
 
             detail.setActualScore(result.getTotalScore() != null ? result.getTotalScore() : 0);
             if (result.getTotalScore() != null && detail.getQuestionScore() != null

@@ -94,9 +94,9 @@ public class ErrorBookServiceImpl extends ServiceImpl<ErrorBookMapper, ErrorBook
 
         String sort = sortBy != null ? sortBy : "lastErrorTime";
         String orderCol;
-        if ("firstErrorTime".equals(sort)) orderCol = "first_error_time";
-        else if ("errorCount".equals(sort)) orderCol = "error_count";
-        else orderCol = "last_error_time";
+        if ("firstErrorTime".equals(sort)) orderCol = "firstErrorTime";
+        else if ("errorCount".equals(sort)) orderCol = "errorCount";
+        else orderCol = "lastErrorTime";
         qw.orderBy(orderCol, false);
 
         return this.page(Page.of(pageNum, pageSize), qw);

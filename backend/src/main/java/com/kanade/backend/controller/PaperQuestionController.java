@@ -37,6 +37,7 @@ public class PaperQuestionController {
     @SaCheckLogin
     @Operation(summary = "添加试题到试卷")
     public BaseResponse<Long> addQuestionToPaper(@RequestBody PaperQuestionAddDTO addDTO) {
+        crawlerDetect(StpUtil.getLoginIdAsLong());
         Long id = paperQuestionService.addQuestionToPaper(addDTO);
         return ResultUtils.success(id);
     }
@@ -45,6 +46,7 @@ public class PaperQuestionController {
     @SaCheckLogin
     @Operation(summary = "更新试卷中试题的分值或排序")
     public BaseResponse<Boolean> updatePaperQuestion(@RequestBody PaperQuestionUpdateDTO updateDTO) {
+        crawlerDetect(StpUtil.getLoginIdAsLong());
         boolean result = paperQuestionService.updatePaperQuestion(updateDTO);
         return ResultUtils.success(result);
     }
@@ -53,6 +55,7 @@ public class PaperQuestionController {
     @SaCheckLogin
     @Operation(summary = "从试卷中移除试题")
     public BaseResponse<Boolean> removeQuestionFromPaper(@RequestBody DeleteRequest deleteRequest) {
+        crawlerDetect(StpUtil.getLoginIdAsLong());
         if (deleteRequest.getId() == null) {
             throw new RuntimeException("关联ID不能为空");
         }

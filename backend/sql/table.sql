@@ -241,28 +241,28 @@ CREATE TABLE `recommendFeedback` (
 -- 第三部分：ALTER TABLE（给已有数据库补字段用）
 -- 如果使用上面的完整 CREATE TABLE，则无需执行本部分
 -- ============================================================
-
--- ALTER TABLE `question`
---     ADD COLUMN `discrimination` tinyint DEFAULT 0 COMMENT '【新增】区分度 1-5',
---     ADD COLUMN `calcLevel` tinyint DEFAULT 0 COMMENT '【新增】计算量等级 1-3',
---     ADD COLUMN `examFrequency` int DEFAULT 0 COMMENT '【新增】考频 0-100',
---     ADD COLUMN `gradeStageId` bigint DEFAULT NULL COMMENT '【新增】学段ID';
-
--- ALTER TABLE `examPaper`
---     ADD COLUMN `strategyId` bigint DEFAULT NULL COMMENT '【新增】组卷策略ID',
---     ADD COLUMN `paperType` tinyint DEFAULT 1 COMMENT '【新增】试卷类型',
---     ADD COLUMN `difficultyRate` decimal(3,2) DEFAULT 0.0 COMMENT '【新增】整体难度系数',
---     ADD COLUMN `duration` int DEFAULT NULL COMMENT '【新增】答题时长',
---     ADD COLUMN `exportStatus` tinyint DEFAULT 0 COMMENT '【新增】导出状态';
-
--- ALTER TABLE `paperQuestion`
---     ADD COLUMN `isAutoAdd` tinyint DEFAULT 0 COMMENT '【新增】是否自动组卷添加';
-
--- ALTER TABLE `userExamRecord`
---     ADD COLUMN `paperStrategyId` bigint DEFAULT NULL COMMENT '【新增】关联组卷策略ID';
-
--- ALTER TABLE `userAnswerDetail`
---     ADD COLUMN `questionDifficulty` tinyint DEFAULT 0 COMMENT '【新增】题目难度（冗余）';
-
--- ALTER TABLE `userAnswerStats`
---     ADD COLUMN `statsSubjectId` bigint DEFAULT NULL COMMENT '【新增】统计学科ID';
+#
+# ALTER TABLE `question`
+#     ADD COLUMN `discrimination` tinyint DEFAULT 0 COMMENT '【新增】区分度 1-5',
+#     ADD COLUMN `calcLevel` tinyint DEFAULT 0 COMMENT '【新增】计算量等级 1-3',
+#     ADD COLUMN `examFrequency` int DEFAULT 0 COMMENT '【新增】考频 0-100',
+#     ADD COLUMN `gradeStageId` bigint DEFAULT NULL COMMENT '【新增】学段ID';
+#
+# ALTER TABLE `examPaper`
+#     ADD COLUMN `strategyId` bigint DEFAULT NULL COMMENT '【新增】组卷策略ID',
+#     ADD COLUMN `paperType` tinyint DEFAULT 1 COMMENT '【新增】试卷类型',
+#     ADD COLUMN `difficultyRate` decimal(3,2) DEFAULT 0.0 COMMENT '【新增】整体难度系数',
+#     ADD COLUMN `duration` int DEFAULT NULL COMMENT '【新增】答题时长',
+#     ADD COLUMN `exportStatus` tinyint DEFAULT 0 COMMENT '【新增】导出状态';
+#
+# ALTER TABLE `paperQuestion`
+#     ADD COLUMN `isAutoAdd` tinyint DEFAULT 0 COMMENT '【新增】是否自动组卷添加';
+#
+# ALTER TABLE `userExamRecord`
+#     ADD COLUMN `paperStrategyId` bigint DEFAULT NULL COMMENT '【新增】关联组卷策略ID';
+#
+# ALTER TABLE `userAnswerDetail`
+#     ADD COLUMN `questionDifficulty` tinyint DEFAULT 0 COMMENT '【新增】题目难度（冗余）';
+#
+# ALTER TABLE `userAnswerStats`
+#     ADD COLUMN `statsSubjectId` bigint DEFAULT NULL COMMENT '【新增】统计学科ID';

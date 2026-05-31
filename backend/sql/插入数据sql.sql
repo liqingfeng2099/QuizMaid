@@ -133,28 +133,39 @@ CREATE TABLE `recommendfeedback` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='推荐反馈记录表';
 
 -- ============================================================
+-- ⚠️ 警告：此脚本将清空所有业务数据！
+-- 适用场景：开发/测试环境数据重置
+-- 禁止在生产环境执行此脚本！
+-- ============================================================
 -- 第一步：清除所有表数据（userAccount 除外）
 -- 注意：先删子表再删父表，避免外键约束冲突
 -- ============================================================
-DELETE FROM recommendfeedback;
-DELETE FROM errorbookgroupitem;
-DELETE FROM errorbooknote;
-DELETE FROM errorbookexportlog;
-DELETE FROM exporttemplate;
-DELETE FROM errorbookgroup;
-DELETE FROM errorbook;
-DELETE FROM systemnotification;
-DELETE FROM papershare;
-DELETE FROM aipaperchat;
-DELETE FROM strategyweight;
-DELETE FROM paperstrategy;
-DELETE FROM useranswerstats;
-DELETE FROM useranswerdetail;
-DELETE FROM userexamrecord;
-DELETE FROM paperquestion;
-DELETE FROM exampaper;
-DELETE FROM usersign;
-DELETE FROM question;
+
+-- 开启事务，确保数据一致性
+START TRANSACTION;
+
+TRUNCATE TABLE recommendfeedback;
+TRUNCATE TABLE errorbookgroupitem;
+TRUNCATE TABLE errorbooknote;
+TRUNCATE TABLE errorbookexportlog;
+TRUNCATE TABLE exporttemplate;
+TRUNCATE TABLE errorbookgroup;
+TRUNCATE TABLE errorbook;
+TRUNCATE TABLE systemnotification;
+TRUNCATE TABLE papershare;
+TRUNCATE TABLE aipaperchat;
+TRUNCATE TABLE strategyweight;
+TRUNCATE TABLE paperstrategy;
+TRUNCATE TABLE useranswerstats;
+TRUNCATE TABLE useranswerdetail;
+TRUNCATE TABLE userexamrecord;
+TRUNCATE TABLE paperquestion;
+TRUNCATE TABLE exampaper;
+TRUNCATE TABLE usersign;
+TRUNCATE TABLE question;
+
+-- 提交事务
+COMMIT;
 
 -- ============================================================
 -- 第二步：试题 question（20条，覆盖4学科×4题型×3难度）

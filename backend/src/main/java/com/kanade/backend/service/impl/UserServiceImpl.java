@@ -140,8 +140,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         RBitSet bitSet = redissonClient.getBitSet(userSignInRedisKey);
 
         int dayOfYear = date.getDayOfYear();
-        if(!bitSet.get(dayOfYear)){
-            return bitSet.set(dayOfYear,true);
+        if(bitSet.get(dayOfYear)){
+            // 今日已签到，无需重复签到
+            return true;
         }
 
         String continuousKey = Constant.getUserContinuousSignKey(id);
@@ -168,6 +169,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 continuousBucket.set(1);
             }
         }
+        // 标记今日已签到
+        bitSet.set(dayOfYear, true);
         // 更新最后签到日期
         lastDateBucket.set(today.toString());
         return true;

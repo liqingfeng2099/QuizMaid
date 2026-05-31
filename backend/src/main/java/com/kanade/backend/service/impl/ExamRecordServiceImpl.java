@@ -9,13 +9,19 @@ import com.kanade.backend.model.vo.*;
 import com.kanade.backend.service.ErrorBookService;
 import com.kanade.backend.service.ExamRecordService;
 import com.kanade.backend.service.QuestionService;
+import com.kanade.backend.config.RabbitMQConfig;
+import com.kanade.backend.model.dto.QuestionCorrectionMessageDTO;
 import com.kanade.backend.model.entity.User;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.spring.service.impl.ServiceImpl;
+import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -36,6 +42,9 @@ public class ExamRecordServiceImpl extends ServiceImpl<UserexamrecordMapper, Use
     private final UserMapper userMapper;
     private final QuestionService questionService;
     private final ErrorBookService errorBookService;
+
+    @Resource
+    private RabbitTemplate rabbitTemplate;
 
     @Override
     @Transactional
@@ -66,17 +75,24 @@ public class ExamRecordServiceImpl extends ServiceImpl<UserexamrecordMapper, Use
         record.setStartTime(LocalDateTime.now());
         this.save(record);
 
+        List<Long> qids = pqList.stream().map(Paperquestion::getQuestionId).toList();
+        Map<Long, Question> qMap = questionService.listByIds(qids).stream()
+                .collect(Collectors.toMap(Question::getId, q -> q));
+
         LocalDateTime now = LocalDateTime.now();
         for (Paperquestion pq : pqList) {
+            Question q = qMap.get(pq.getQuestionId());
             Useranswerdetail detail = new Useranswerdetail();
             detail.setRecordId(record.getId());
             detail.setPaperId(paperId);
             detail.setQuestionId(pq.getQuestionId());
+            detail.setQuestionType(q != null ? q.getType() : null);
             detail.setQuestionScore(pq.getQuestionScore());
             detail.setUserAnswer("");
             detail.setActualScore(0);
             detail.setCorrectStatus(0);
             detail.setCreateTime(now);
+            detail.setUpdateTime(now);
             useranswerdetailMapper.insert(detail);
         }
 
@@ -102,6 +118,7 @@ public class ExamRecordServiceImpl extends ServiceImpl<UserexamrecordMapper, Use
 
         int totalScore = 0;
         int wrongCount = 0;
+        List<Long> subjectiveDetailIds = new ArrayList<>();
         for (Useranswerdetail detail : details) {
             String userAnswer = answers.getOrDefault(detail.getQuestionId(), "");
             detail.setUserAnswer(userAnswer != null ? userAnswer : "");
@@ -116,6 +133,9 @@ public class ExamRecordServiceImpl extends ServiceImpl<UserexamrecordMapper, Use
             } else {
                 detail.setCorrectStatus(0);
                 detail.setActualScore(0);
+                if (q != null && q.getType() != null && q.getType() == 4) {
+                    subjectiveDetailIds.add(detail.getId());
+                }
             }
             useranswerdetailMapper.update(detail);
             totalScore += detail.getActualScore() != null ? detail.getActualScore() : 0;
@@ -144,6 +164,21 @@ public class ExamRecordServiceImpl extends ServiceImpl<UserexamrecordMapper, Use
 
         // 更新用户答题计数 (B1)
         updateUserAnswerStats(userId, details.size(), details.size() - wrongCount);
+
+        // 事务提交后发送AI批改消息，避免Consumer读到未提交的userAnswer
+        if (!subjectiveDetailIds.isEmpty()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    for (Long detailId : subjectiveDetailIds) {
+                        QuestionCorrectionMessageDTO msg = new QuestionCorrectionMessageDTO();
+                        msg.setDetailId(detailId);
+                        rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE_CORRECTION,
+                                RabbitMQConfig.ROUTING_KEY_CORRECTION, msg);
+                    }
+                }
+            });
+        }
 
         return getExamResult(recordId);
     }

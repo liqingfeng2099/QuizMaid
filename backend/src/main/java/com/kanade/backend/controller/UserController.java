@@ -346,6 +346,9 @@ public class UserController {
     // 获取签到信息
     @PostMapping("/signdata")
     public BaseResponse<Map<LocalDate,Boolean>> getUserSignData(Integer year){
+        if (year == null) {
+            year = LocalDate.now().getYear();
+        }
         long loginId = StpUtil.getLoginIdAsLong();
         List<Integer> userSignInData = userService.getUserSignInData(loginId, year);
         Map<LocalDate,Boolean> data = new LinkedHashMap<>();
