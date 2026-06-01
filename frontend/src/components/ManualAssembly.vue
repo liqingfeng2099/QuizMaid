@@ -90,47 +90,58 @@ watch(typeConfigs, debouncedFetch, { deep: true })
 
 // ========== 组卷 ==========
 const assembling = ref(false)
+const savingStrategy = ref(false)
 const assemblyResult = ref<API.AssemblyResultVO | null>(null)
 const assemblyError = ref('')
+
+/** 如果没有选择策略，自动创建策略，返回 strategyId。saveAsTemplate 控制命名 */
+async function ensureStrategy(): Promise<number | undefined> {
+  if (selectedStrategyId.value) return selectedStrategyId.value
+
+  try {
+    const strategyName = saveAsTemplate.value
+      ? paperName.value + '-组卷策略'
+      : paperName.value + '-临时策略'
+
+    const diffConfig = JSON.stringify([
+      { level: 1, ratio: easyRatio.value / 100 },
+      { level: 2, ratio: midRatio.value / 100 },
+      { level: 3, ratio: hardRatio.value / 100 },
+    ])
+    const typeConfig = JSON.stringify(typeConfigs.filter(t => t.count > 0).map(t => ({
+      type: t.type, count: t.count, score: t.scorePerQ,
+    })))
+    const res = await addPaperStrategy({
+      strategyName,
+      totalScore: totalScore.value,
+      difficultyAvg: difficultyAvg.value,
+      duration: duration.value,
+      questionTypeConfig: typeConfig,
+      difficultyConfig: diffConfig,
+      weights: [
+        { weightType: 'difficulty', weightValue: 30 },
+        { weightType: 'accuracy', weightValue: 15 },
+        { weightType: 'discrimination', weightValue: 20 },
+        { weightType: 'calcLevel', weightValue: 10 },
+        { weightType: 'examFrequency', weightValue: 10 },
+        { weightType: 'knowledgeCount', weightValue: 15 },
+      ],
+    })
+    if (res.data.code === 0 && res.data.data?.id) {
+      selectedStrategyId.value = res.data.data.id
+      // 刷新策略列表，使新建策略在后续下拉中可见
+      loadStrategies()
+      return res.data.data.id
+    }
+  } catch { /* ignore */ }
+  return undefined
+}
 
 async function handleGreedyAssemble() {
   if (!paperName.value) { message.warning('请输入试卷名称'); return }
   if (!ratioValid.value) { message.warning('难度占比之和必须为100%'); return }
 
-  // 如果没有选策略，自动创建一个临时策略
-  let sid = selectedStrategyId.value
-  if (!sid) {
-    try {
-      const diffConfig = JSON.stringify([
-        { level: 1, ratio: easyRatio.value / 100 },
-        { level: 2, ratio: midRatio.value / 100 },
-        { level: 3, ratio: hardRatio.value / 100 },
-      ])
-      const typeConfig = JSON.stringify(typeConfigs.filter(t => t.count > 0).map(t => ({
-        type: t.type, count: t.count, score: t.scorePerQ,
-      })))
-      const res = await addPaperStrategy({
-        strategyName: paperName.value + '-临时策略',
-        totalScore: totalScore.value,
-        difficultyAvg: difficultyAvg.value,
-        duration: duration.value,
-        questionTypeConfig: typeConfig,
-        difficultyConfig: diffConfig,
-        weights: [
-          { weightType: 'difficulty', weightValue: 30 },
-          { weightType: 'accuracy', weightValue: 15 },
-          { weightType: 'discrimination', weightValue: 20 },
-          { weightType: 'calcLevel', weightValue: 10 },
-          { weightType: 'examFrequency', weightValue: 10 },
-          { weightType: 'knowledgeCount', weightValue: 15 },
-        ],
-      })
-      if (res.data.code === 0 && res.data.data?.id) {
-        sid = res.data.data.id
-        selectedStrategyId.value = sid
-      }
-    } catch { /* ignore */ }
-  }
+  const sid = await ensureStrategy()
   if (!sid) { message.warning('请选择或创建组卷策略'); return }
 
   assemblyError.value = ''
@@ -152,11 +163,10 @@ async function handleGreedyAssemble() {
 
 async function handleGeneticAssemble() {
   if (!paperName.value) { message.warning('请输入试卷名称'); return }
-  const sid = selectedStrategyId.value
-  if (!sid) {
-    message.warning('遗传组卷需要先选择策略')
-    return
-  }
+  if (!ratioValid.value) { message.warning('难度占比之和必须为100%'); return }
+
+  const sid = await ensureStrategy()
+  if (!sid) { message.warning('请选择或创建组卷策略'); return }
 
   assemblyError.value = ''
   assembling.value = true
@@ -172,6 +182,51 @@ async function handleGeneticAssemble() {
     assemblyError.value = '组卷请求失败'
   } finally {
     assembling.value = false
+  }
+}
+
+/** 仅保存策略配置（不执行组卷），供后续复用 */
+async function handleSaveStrategy() {
+  if (!paperName.value) { message.warning('请输入试卷名称'); return }
+  if (!ratioValid.value) { message.warning('难度占比之和必须为100%'); return }
+
+  savingStrategy.value = true
+  try {
+    const diffConfig = JSON.stringify([
+      { level: 1, ratio: easyRatio.value / 100 },
+      { level: 2, ratio: midRatio.value / 100 },
+      { level: 3, ratio: hardRatio.value / 100 },
+    ])
+    const typeConfig = JSON.stringify(typeConfigs.filter(t => t.count > 0).map(t => ({
+      type: t.type, count: t.count, score: t.scorePerQ,
+    })))
+    const res = await addPaperStrategy({
+      strategyName: paperName.value + '-组卷策略',
+      totalScore: totalScore.value,
+      difficultyAvg: difficultyAvg.value,
+      duration: duration.value,
+      questionTypeConfig: typeConfig,
+      difficultyConfig: diffConfig,
+      weights: [
+        { weightType: 'difficulty', weightValue: 30 },
+        { weightType: 'accuracy', weightValue: 15 },
+        { weightType: 'discrimination', weightValue: 20 },
+        { weightType: 'calcLevel', weightValue: 10 },
+        { weightType: 'examFrequency', weightValue: 10 },
+        { weightType: 'knowledgeCount', weightValue: 15 },
+      ],
+    })
+    if (res.data.code === 0 && res.data.data?.id) {
+      selectedStrategyId.value = res.data.data.id
+      loadStrategies()
+      message.success('策略「' + paperName.value + '-组卷策略」已保存，可在下拉列表中复用')
+    } else {
+      message.error('保存失败：' + (res.data.message || '未知错误'))
+    }
+  } catch {
+    message.error('保存策略请求失败')
+  } finally {
+    savingStrategy.value = false
   }
 }
 
@@ -321,8 +376,11 @@ onMounted(() => {
           <a-button type="primary" size="large" @click="handleGreedyAssemble" :loading="assembling">
             贪心算法组卷 (快速)
           </a-button>
-          <a-button size="large" @click="handleGeneticAssemble" :loading="assembling" :disabled="!selectedStrategyId">
+          <a-button size="large" @click="handleGeneticAssemble" :loading="assembling">
             遗传算法组卷 (高精度)
+          </a-button>
+          <a-button size="large" @click="handleSaveStrategy" :loading="savingStrategy">
+            保存策略
           </a-button>
           <a-button size="large" @click="handleReset">重置</a-button>
         </a-space>

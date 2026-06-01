@@ -5,18 +5,28 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.kanade.backend.ai.AiService;
 import com.kanade.backend.ai.AiServiceFactory;
+import com.kanade.backend.ai.strategy.StrategyInferenceService;
+import com.kanade.backend.assembly.constraint.ConstraintValidator;
+import com.kanade.backend.assembly.model.AssemblyConstraint;
+import com.kanade.backend.assembly.model.AssemblyContext;
+import com.kanade.backend.assembly.model.IndicatorEnum;
+import com.kanade.backend.assembly.model.QuestionScore;
+import com.kanade.backend.assembly.scorer.CompositeScorer;
 import com.kanade.backend.exception.BusinessException;
 import com.kanade.backend.exception.ErrorCode;
 import com.kanade.backend.mapper.ExamPaperMapper;
 import com.kanade.backend.mapper.PaperquestionMapper;
+import com.kanade.backend.mapper.StrategyWeightMapper;
 import com.kanade.backend.mapper.UserMapper;
 import com.kanade.backend.model.dto.AIPaperAssemblyDTO;
 import com.kanade.backend.model.dto.AIPaperAssemblyV2DTO;
+import com.kanade.backend.model.dto.AssemblyDegradeHintDTO;
 import com.kanade.backend.model.dto.ExamPaperQueryDTO;
 import com.kanade.backend.model.entity.*;
 import com.kanade.backend.model.vo.*;
 import com.kanade.backend.service.AiPaperChatService;
 import com.kanade.backend.service.ExamPaperService;
+import com.kanade.backend.service.PaperStrategyService;
 import com.kanade.backend.service.QuestionService;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
@@ -42,6 +52,9 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
     private final AiServiceFactory aiServiceFactory;
     private final AiPaperChatService aiPaperChatService;
     private final UserMapper userMapper;
+    private final StrategyInferenceService strategyInferenceService;
+    private final PaperStrategyService paperStrategyService;
+    private final StrategyWeightMapper strategyWeightMapper;
 
     @Override
     public Long addExamPaper(ExamPaper examPaper) {
@@ -479,6 +492,7 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
             }
 
             // 解析JSON
+            @SuppressWarnings("unchecked")
             Map<String, Object> resultMap = JSONUtil.toBean(jsonStr, Map.class);
             Object questionIdsObj = resultMap.get("questionIds");
 
@@ -524,32 +538,66 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         }
     }
 
-    // ==================== AI增强组卷（任务5） ====================
+    // ==================== AI增强组卷 A+C 混合模式（任务5重构） ====================
+
+    /** 算法预筛的 Top-N 截断值 */
+    private static final int PRESCREEN_TOP_N = 60;
 
     /**
-     * 增强版AI组卷：个性化提示词 + 重试机制 + 对话记录
+     * A+C 混合组卷（三阶段）：
+     * 阶段1 (C): LLM 推断用户自然语言需求 → 结构化策略参数 → 存入 PaperStrategy + StrategyWeight
+     * 阶段2 (A): CompositeScorer 算法评分排序 → Top 60 截断 → ConstraintValidator 预校验
+     * 阶段3 (C): LLM 基于 Top 候选做二次精选 → 后置约束校验 → 贪心补位
      */
     @Transactional(rollbackFor = Exception.class)
     public AIAssemblyStrategyVO aiAssemblePaperV2(AIPaperAssemblyV2DTO dto) {
         Long userId = StpUtil.getLoginIdAsLong();
+        long startTime = System.currentTimeMillis();
 
-        // 1. 构建用户学习画像
+        // 构建用户学习画像
         AIProfileVO profile = null;
         if (Boolean.TRUE.equals(dto.getUsePersonalization())) {
             profile = buildUserProfile(userId);
         }
 
-        // 2. 过滤候选题目
-        List<Question> candidates = filterQuestionsV2(dto, userId);
+        // ==================== 阶段1: LLM 推断策略参数 (C) ====================
+        log.info("[AI组卷A+C] 阶段1: LLM 推断策略参数");
+        StrategyInferenceService.StrategyInferenceResult inferenceResult =
+                strategyInferenceService.infer(dto, profile);
+        StrategyInferenceService.InferredParams params = inferenceResult.getParams();
 
+        // 持久化策略
+        PaperStrategy strategy = persistInferredStrategy(inferenceResult, dto, userId);
+        List<StrategyWeight> weights = persistInferredWeights(inferenceResult, strategy.getId());
+        log.info("[AI组卷A+C] 策略已保存: id={}, 难度均值={}, 题型数={}, 推断来源={}",
+                strategy.getId(), params.getDifficultyAvg(),
+                params.getQuestionTypeConfig() != null ? params.getQuestionTypeConfig().size() : 0,
+                inferenceResult.isInferenceSuccess() ? "LLM" : "默认");
+
+        // ==================== 阶段2: 算法预筛评分 (A) ====================
+        log.info("[AI组卷A+C] 阶段2: 算法预筛评分");
+        List<Question> candidates = filterQuestionsV2(dto, userId);
         if (candidates.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "没有符合条件的题目，请调整筛选条件或先添加题目");
         }
 
-        // 3. 构建增强提示词
-        String prompt = buildEnhancedPrompt(dto, candidates, profile);
+        PreScreenResult preScreen = preScreenAndScore(candidates, strategy, weights);
+        log.info("[AI组卷A+C] 预筛: {}道候选 → Top {}道 (得分范围 {:.3f}~{:.3f})",
+                candidates.size(), preScreen.topCandidates.size(),
+                preScreen.topCandidates.isEmpty() ? 0 : preScreen.topCandidates.get(preScreen.topCandidates.size() - 1).getCompositeScore(),
+                preScreen.topCandidates.isEmpty() ? 0 : preScreen.topCandidates.get(0).getCompositeScore());
 
-        // 4. 重试调用AI（最多3次）
+        if (preScreen.topCandidates.isEmpty()) {
+            // 预筛无结果 → 返回空但保留策略信息
+            aiPaperChatService.saveChat(userId, null, strategy.getId(), dto.getUserRequirement(),
+                    "预筛无结果", 2, 0);
+            return buildEmptyResult(inferenceResult, strategy, "候选题目评分均为0，请调整筛选条件");
+        }
+
+        // ==================== 阶段3: LLM 二次精选 (C) ====================
+        log.info("[AI组卷A+C] 阶段3: LLM 二次精选");
+        String prompt = buildStage3Prompt(dto, profile, preScreen, params);
+
         String aiResponse = null;
         int retryCount = 0;
         Exception lastError = null;
@@ -564,7 +612,7 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
                 }
             } catch (Exception e) {
                 lastError = e;
-                log.warn("[AI组卷] 第{}次调用失败: {}", attempt + 1, e.getMessage());
+                log.warn("[AI组卷A+C] 第{}次调用失败: {}", attempt + 1, e.getMessage());
                 retryCount = attempt + 1;
                 if (attempt < 2) {
                     try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
@@ -572,18 +620,36 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
             }
         }
 
-        if (aiResponse == null || aiResponse.isBlank()) {
-            // 保存失败记录
-            aiPaperChatService.saveChat(userId, null, null, prompt, lastError != null ? lastError.getMessage() : "无响应", 2, retryCount);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
-                    "AI组卷失败（已重试" + retryCount + "次），建议切换手动组卷模式");
+        List<Long> aiSelectedIds;
+        boolean llmSuccess = (aiResponse != null && !aiResponse.isBlank());
+
+        if (llmSuccess) {
+            aiSelectedIds = parseAIResponse(aiResponse);
+            log.info("[AI组卷A+C] LLM 选中 {} 道题", aiSelectedIds.size());
+        } else {
+            aiSelectedIds = Collections.emptyList();
+            log.warn("[AI组卷A+C] LLM 调用失败，降级为纯算法结果");
         }
 
-        // 5. 解析AI响应
-        AIAssemblyStrategyVO result = parseAIResponseV2(aiResponse, candidates);
+        // 后置校验 + 贪心补位
+        List<QuestionScore> finalSelection = validateAndFillGaps(
+                aiSelectedIds, preScreen.topCandidates, preScreen.constraints);
 
-        // 6. 保存对话记录
-        aiPaperChatService.saveChat(userId, null, null, dto.getUserRequirement(), aiResponse, 1, retryCount);
+        // 保存对话记录
+        aiPaperChatService.saveChat(userId, null, strategy.getId(),
+                dto.getUserRequirement(),
+                aiResponse != null ? aiResponse : (lastError != null ? lastError.getMessage() : "无响应"),
+                llmSuccess ? 1 : 2, retryCount);
+
+        // 构建返回结果
+        AIAssemblyStrategyVO result = buildResultVO(finalSelection, inferenceResult, strategy, preScreen,
+                llmSuccess, retryCount);
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("[AI组卷A+C] 完成, 耗时: {}ms | 推断:{} → 预筛:{}→{}道 → LLM:{}道 → 最终:{}道 | 策略id:{}",
+                elapsed, inferenceResult.isInferenceSuccess() ? "LLM" : "默认",
+                candidates.size(), preScreen.topCandidates.size(),
+                aiSelectedIds.size(), finalSelection.size(), strategy.getId());
 
         return result;
     }
@@ -682,11 +748,152 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
         return questionService.list(wrapper);
     }
 
+    // ==================== A+C 阶段方法 ====================
+
     /**
-     * 构建增强版AI提示词（含个性化数据）
+     * 持久化 LLM 推断的策略
      */
-    private String buildEnhancedPrompt(AIPaperAssemblyV2DTO dto, List<Question> candidates, AIProfileVO profile) {
+    private PaperStrategy persistInferredStrategy(StrategyInferenceService.StrategyInferenceResult result,
+                                                    AIPaperAssemblyV2DTO dto, Long userId) {
+        StrategyInferenceService.InferredParams params = result.getParams();
+        LocalDateTime now = LocalDateTime.now();
+
+        String typeConfigJson = params.getQuestionTypeConfig() != null
+                ? JSONUtil.toJsonStr(params.getQuestionTypeConfig().stream()
+                    .map(StrategyInferenceService.TypeConfigItem::toMap)
+                    .collect(Collectors.toList()))
+                : "[]";
+
+        String diffConfigJson = params.getDifficultyConfig() != null
+                ? JSONUtil.toJsonStr(params.getDifficultyConfig().stream()
+                    .map(StrategyInferenceService.DiffConfigItem::toMap)
+                    .collect(Collectors.toList()))
+                : "[]";
+
+        String kpScopeJson = params.getKnowledgePointScope() != null
+                ? JSONUtil.toJsonStr(params.getKnowledgePointScope())
+                : "[]";
+
+        int totalScore = params.getQuestionTypeConfig() != null
+                ? params.getQuestionTypeConfig().stream().mapToInt(t -> t.getCount() * t.getScore()).sum()
+                : (dto.getTotalScore() != null ? dto.getTotalScore() : 150);
+
+        PaperStrategy strategy = PaperStrategy.builder()
+                .strategyName("AI推断-" + (dto.getPaperName() != null ? dto.getPaperName() : "组卷"))
+                .userId(userId)
+                .totalScore(totalScore)
+                .difficultyAvg(params.getDifficultyAvg())
+                .duration(params.getDuration())
+                .questionTypeConfig(typeConfigJson)
+                .difficultyConfig(diffConfigJson)
+                .knowledgePointScope(kpScopeJson)
+                .isDefault(0)
+                .createTime(now)
+                .updateTime(now)
+                .build();
+
+        paperStrategyService.save(strategy);
+        return strategy;
+    }
+
+    /**
+     * 持久化 LLM 推断的权重
+     */
+    private List<StrategyWeight> persistInferredWeights(StrategyInferenceService.StrategyInferenceResult result,
+                                                         Long strategyId) {
+        LocalDateTime now = LocalDateTime.now();
+        List<StrategyWeight> weights = new ArrayList<>();
+
+        if (result.getParams().getWeights() != null) {
+            for (StrategyInferenceService.WeightItem w : result.getParams().getWeights()) {
+                StrategyWeight sw = StrategyWeight.builder()
+                        .strategyId(strategyId)
+                        .weightType(w.getWeightType())
+                        .weightValue(w.getWeightValue())
+                        .createTime(now)
+                        .updateTime(now)
+                        .build();
+                strategyWeightMapper.insert(sw);
+                weights.add(sw);
+            }
+        }
+        return weights;
+    }
+
+    /**
+     * 阶段2: 算法预筛评分
+     * 用 CompositeScorer 对全量候选打分 → 按综合得分降序 → Top N 截断
+     */
+    private PreScreenResult preScreenAndScore(List<Question> candidates, PaperStrategy strategy,
+                                               List<StrategyWeight> weights) {
+        AssemblyContext context = AssemblyContext.from(strategy, weights, Collections.emptyList());
+        CompositeScorer scorer = new CompositeScorer(context);
+
+        List<QuestionScore> scored = candidates.stream()
+                .map(scorer::scoreWithDetail)
+                .filter(qs -> qs.getCompositeScore() > 0)
+                .sorted(Comparator.comparingDouble(QuestionScore::getCompositeScore).reversed())
+                .collect(Collectors.toList());
+
+        // 确保覆盖所有题型 — 每种题型至少保留前3道
+        Set<Integer> coveredTypes = new HashSet<>();
+        List<QuestionScore> topN = new ArrayList<>();
+        List<QuestionScore> rest = new ArrayList<>();
+
+        for (QuestionScore qs : scored) {
+            if (topN.size() >= PRESCREEN_TOP_N) {
+                break;
+            }
+            Integer type = qs.getType();
+            if (!coveredTypes.contains(type)) {
+                topN.add(qs);
+                coveredTypes.add(type);
+            } else if (topN.size() < PRESCREEN_TOP_N - 4) {
+                // 前 N-4 个位置按得分填充，留 4 个给未覆盖题型
+                topN.add(qs);
+            } else {
+                rest.add(qs);
+            }
+        }
+        // 如果还有空间，从 rest 补充
+        for (QuestionScore qs : rest) {
+            if (topN.size() >= PRESCREEN_TOP_N) break;
+            topN.add(qs);
+        }
+
+        return new PreScreenResult(topN, context.getConstraints(), scored.size());
+    }
+
+    /**
+     * 阶段3: 构建带评分的候选题目 prompt
+     */
+    private String buildStage3Prompt(AIPaperAssemblyV2DTO dto, AIProfileVO profile,
+                                      PreScreenResult preScreen, StrategyInferenceService.InferredParams params) {
         StringBuilder sb = new StringBuilder();
+
+        // 策略摘要
+        sb.append("【组卷策略】（由AI推断）\n");
+        sb.append("- 描述: ").append(params.getStrategyDescription() != null ? params.getStrategyDescription() : "均衡组卷").append("\n");
+        sb.append("- 平均难度: ").append(params.getDifficultyAvg()).append("/5\n");
+
+        if (params.getQuestionTypeConfig() != null) {
+            sb.append("- 题型配置: ");
+            for (StrategyInferenceService.TypeConfigItem tc : params.getQuestionTypeConfig()) {
+                sb.append(getQuestionTypeText(tc.getType())).append("×").append(tc.getCount()).append(" ");
+            }
+            sb.append("\n");
+        }
+        if (params.getDifficultyConfig() != null) {
+            sb.append("- 难度分布: ");
+            for (StrategyInferenceService.DiffConfigItem dc : params.getDifficultyConfig()) {
+                sb.append(getDifficultyText(dc.getLevel())).append(" ").append((int)(dc.getRatio() * 100)).append("% ");
+            }
+            sb.append("\n");
+        }
+        if (params.getKnowledgePointScope() != null && !params.getKnowledgePointScope().isEmpty()) {
+            sb.append("- 重点知识点: ").append(String.join(", ", params.getKnowledgePointScope())).append("\n");
+        }
+        sb.append("\n");
 
         // 个性化画像
         if (profile != null) {
@@ -696,91 +903,207 @@ public class ExamPaperServiceImpl extends ServiceImpl<ExamPaperMapper, ExamPaper
             if (profile.getWeakPoints() != null && !profile.getWeakPoints().isEmpty()) {
                 sb.append("- 薄弱知识点: ");
                 profile.getWeakPoints().stream().limit(5).forEach(wp ->
-                    sb.append(wp.getKnowledgePoint()).append("(正确率").append(wp.getAccuracy()).append("%) "));
+                    sb.append(wp.getKnowledgePoint()).append("(").append(wp.getAccuracy()).append("%) "));
                 sb.append("\n");
             }
             sb.append("\n");
         }
-
-        // 组卷要求
-        sb.append("【组卷要求】\n");
-        if (StrUtil.isNotBlank(dto.getSubject())) sb.append("- 学科：").append(dto.getSubject()).append("\n");
-        if (StrUtil.isNotBlank(dto.getChapter())) sb.append("- 章节：").append(dto.getChapter()).append("\n");
-        if (dto.getDifficulty() != null) sb.append("- 难度：").append(getDifficultyText(dto.getDifficulty())).append("\n");
-        if (dto.getTotalScore() != null) sb.append("- 目标总分：").append(dto.getTotalScore()).append("\n");
-        if (Boolean.TRUE.equals(dto.getIncludeWeakAreas()) && profile != null && !profile.getWeakPoints().isEmpty()) {
-            sb.append("- 重点：请优先选择薄弱知识点相关的题目\n");
-        }
-        sb.append("\n");
 
         // 用户需求
         if (StrUtil.isNotBlank(dto.getUserRequirement())) {
             sb.append("【用户需求】\n").append(dto.getUserRequirement()).append("\n\n");
         }
 
-        // 候选题目
-        sb.append("【候选题目列表】\n");
-        sb.append("以下是可供选择的题目信息（ID, 题型, 难度, 学科, 章节, 知识点, 标签）：\n");
-        for (int i = 0; i < candidates.size(); i++) {
-            Question q = candidates.get(i);
-            sb.append(String.format("%d. ID=%d, 题型=%s, 难度=%s, 学科=%s, 章节=%s, 知识点=%s, 标签=%s\n",
-                    i + 1, q.getId(), getQuestionTypeText(q.getType()),
+        // 预筛候选（含评分）
+        sb.append("【算法预筛候选题目】（已按综合评分降序排列，共").append(preScreen.topCandidates.size()).append("道）\n");
+        sb.append("每道题格式: 序号. ID=xxx, 题型=xx, 难度=xx, 综合分=x.xxxx, 知识点=xx\n");
+        sb.append("说明: 综合分(compositeScore)越高代表越匹配组卷策略，请优先选择高分题。\n\n");
+
+        for (int i = 0; i < preScreen.topCandidates.size(); i++) {
+            QuestionScore qs = preScreen.topCandidates.get(i);
+            Question q = qs.getQuestion();
+            sb.append(String.format("%d. ID=%d, 题型=%s, 难度=%s, 综合分=%.4f, 学科=%s, 知识点=%s\n",
+                    i + 1, q.getId(),
+                    getQuestionTypeText(q.getType()),
                     getDifficultyText(q.getDifficulty()),
+                    qs.getCompositeScore(),
                     q.getSubject() != null ? q.getSubject() : "未分类",
-                    q.getChapter() != null ? q.getChapter() : "未分类",
-                    q.getKnowledgePoints() != null ? q.getKnowledgePoints() : "无",
-                    q.getTags() != null ? q.getTags() : "无"));
+                    q.getKnowledgePoints() != null ? q.getKnowledgePoints() : "无"));
         }
 
-        sb.append("\n请返回JSON格式（含strategy和questionIds）：\n");
-        sb.append("{\"strategy\":{\"difficultyAvg\":3,\"difficultyConfig\":[{\"level\":1,\"ratio\":0.2}],\"questionTypeConfig\":[{\"type\":1,\"count\":10,\"score\":5}]},\"questionIds\":[1,2,3]}");
+        sb.append("\n请从以上候选题目中选择题目ID，返回JSON格式：{\"questionIds\": [id1, id2, ...]}");
         return sb.toString();
     }
 
     /**
-     * 解析AI v2响应（含strategy）
+     * 后置校验 + 贪心补位
+     * 1. 过滤 LLM 返回的无效 ID（不在预筛池中的）
+     * 2. ConstraintValidator 检查题型/分数等硬约束
+     * 3. 不足时从剩余候选中按得分贪心补位
      */
-    private AIAssemblyStrategyVO parseAIResponseV2(String aiResponse, List<Question> candidates) {
-        try {
-            String json = aiResponse.trim();
-            if (json.startsWith("```")) json = json.substring(json.indexOf("\n") + 1);
-            if (json.endsWith("```")) json = json.substring(0, json.lastIndexOf("```")).trim();
-            if (json.startsWith("json")) json = json.substring(4).trim();
-
-            Map<String, Object> map = JSONUtil.toBean(json, Map.class);
-            AIAssemblyStrategyVO vo = new AIAssemblyStrategyVO();
-
-            // 解析 strategy
-            Object strategyObj = map.get("strategy");
-            if (strategyObj instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> sMap = (Map<String, Object>) strategyObj;
-                vo.setDifficultyAvg(sMap.get("difficultyAvg") instanceof Number ? ((Number) sMap.get("difficultyAvg")).intValue() : 3);
-            }
-
-            // 解析 questionIds
-            Object idsObj = map.get("questionIds");
-            if (idsObj instanceof List) {
-                @SuppressWarnings("unchecked")
-                List<Number> ids = (List<Number>) idsObj;
-                vo.setQuestionIds(ids.stream().map(Number::longValue).collect(Collectors.toList()));
-            } else {
-                vo.setQuestionIds(Collections.emptyList());
-            }
-
-            vo.setTotalQuestions(vo.getQuestionIds().size());
-            vo.setActualTotalScore(vo.getTotalQuestions() * 10);
-
-            return vo;
-        } catch (Exception e) {
-            log.error("[AI组卷v2] 解析响应失败: {}", aiResponse, e);
-            // 降级：尝试旧版parseAIResponse
-            List<Long> ids = parseAIResponse(aiResponse);
-            return AIAssemblyStrategyVO.builder()
-                    .questionIds(ids)
-                    .totalQuestions(ids.size())
-                    .actualTotalScore(ids.size() * 10)
-                    .build();
+    private List<QuestionScore> validateAndFillGaps(List<Long> aiSelectedIds,
+                                                     List<QuestionScore> topCandidates,
+                                                     AssemblyConstraint constraints) {
+        // 构建 ID → QuestionScore 映射
+        Map<Long, QuestionScore> poolMap = new LinkedHashMap<>();
+        for (QuestionScore qs : topCandidates) {
+            poolMap.putIfAbsent(qs.getQuestionId(), qs);
         }
+
+        // 过滤有效 ID
+        List<QuestionScore> selected = new ArrayList<>();
+        Set<Long> selectedIds = new HashSet<>();
+        for (Long id : aiSelectedIds) {
+            QuestionScore qs = poolMap.get(id);
+            if (qs != null && selectedIds.add(id)) {
+                selected.add(qs);
+            }
+        }
+        log.info("[AI组卷A+C] LLM 返回 {} 个ID, 有效 {} 个", aiSelectedIds.size(), selected.size());
+
+        // 约束校验
+        ConstraintValidator validator = new ConstraintValidator(constraints);
+        List<AssemblyDegradeHintDTO> hints = validator.validateWithHints(selected);
+        if (!hints.isEmpty()) {
+            log.info("[AI组卷A+C] 后置校验发现 {} 条降级提示", hints.size());
+        }
+
+        // 贪心补位：从剩余候选中按得分补足
+        boolean needsFill = !validator.validate(selected, true);
+        if (needsFill) {
+            for (QuestionScore qs : topCandidates) {
+                if (selectedIds.contains(qs.getQuestionId())) continue;
+                if (validator.canAdd(selected, qs)) {
+                    selected.add(qs);
+                    selectedIds.add(qs.getQuestionId());
+                }
+            }
+            log.info("[AI组卷A+C] 贪心补位后共 {} 道题", selected.size());
+        }
+
+        return selected;
+    }
+
+    /**
+     * 构建最终返回的 VO
+     */
+    private AIAssemblyStrategyVO buildResultVO(List<QuestionScore> finalSelection,
+                                                StrategyInferenceService.StrategyInferenceResult inferenceResult,
+                                                PaperStrategy strategy, PreScreenResult preScreen,
+                                                boolean llmSuccess, int retryCount) {
+        StrategyInferenceService.InferredParams params = inferenceResult.getParams();
+
+        List<Long> questionIds = finalSelection.stream()
+                .map(QuestionScore::getQuestionId)
+                .collect(Collectors.toList());
+
+        int totalScore = 0;
+        if (params.getQuestionTypeConfig() != null) {
+            // 按策略中的题型分值计算实际总分
+            Map<Integer, Integer> typeScoreMap = params.getQuestionTypeConfig().stream()
+                    .collect(Collectors.toMap(
+                            StrategyInferenceService.TypeConfigItem::getType,
+                            StrategyInferenceService.TypeConfigItem::getScore,
+                            (a, b) -> a));
+            for (QuestionScore qs : finalSelection) {
+                totalScore += typeScoreMap.getOrDefault(qs.getType(), 10);
+            }
+        } else {
+            totalScore = finalSelection.size() * 10;
+        }
+
+        // 转换难度配置
+        List<AIAssemblyStrategyVO.DifficultyConfig> diffConfigs = null;
+        if (params.getDifficultyConfig() != null) {
+            diffConfigs = params.getDifficultyConfig().stream()
+                    .map(d -> AIAssemblyStrategyVO.DifficultyConfig.builder()
+                            .level(d.getLevel()).ratio(d.getRatio()).build())
+                    .collect(Collectors.toList());
+        }
+
+        // 转换题型配置
+        List<AIAssemblyStrategyVO.TypeConfig> typeConfigs = null;
+        if (params.getQuestionTypeConfig() != null) {
+            typeConfigs = params.getQuestionTypeConfig().stream()
+                    .map(t -> AIAssemblyStrategyVO.TypeConfig.builder()
+                            .type(t.getType()).count(t.getCount()).score(t.getScore()).build())
+                    .collect(Collectors.toList());
+        }
+
+        String kpScope = params.getKnowledgePointScope() != null
+                ? String.join(",", params.getKnowledgePointScope()) : null;
+
+        // 阶段详情
+        String stageDetail = (inferenceResult.isInferenceSuccess() ? "AI推断策略" : "默认策略")
+                + " → 算法预筛" + preScreen.totalCandidates + "→" + preScreen.topCandidates.size() + "道"
+                + (llmSuccess ? " → LLM精选" : " → LLM失败降级")
+                + " → 最终" + questionIds.size() + "道"
+                + (retryCount > 0 ? " (重试" + retryCount + "次)" : "");
+
+        return AIAssemblyStrategyVO.builder()
+                .strategyId(strategy.getId())
+                .strategyDescription(params.getStrategyDescription())
+                .stageDetail(stageDetail)
+                .difficultyAvg(params.getDifficultyAvg())
+                .difficultyConfig(diffConfigs)
+                .questionTypeConfig(typeConfigs)
+                .knowledgePointScope(kpScope)
+                .questionIds(questionIds)
+                .totalQuestions(questionIds.size())
+                .actualTotalScore(totalScore)
+                .build();
+    }
+
+    /**
+     * LLM 失败时降级为纯贪心结果
+     */
+    private AIAssemblyStrategyVO buildFallbackResult(PreScreenResult preScreen,
+                                                      StrategyInferenceService.StrategyInferenceResult inferenceResult) {
+        // 用贪心算法从 Top 候选中选题
+        com.kanade.backend.assembly.GreedyAlgorithm greedy =
+                new com.kanade.backend.assembly.GreedyAlgorithm(
+                        new CompositeScorer(AssemblyContext.from(
+                                PaperStrategy.builder()
+                                        .difficultyAvg(inferenceResult.getParams().getDifficultyAvg())
+                                        .totalScore(150).build(),
+                                Collections.emptyList(), Collections.emptyList())),
+                        preScreen.constraints);
+
+        com.kanade.backend.assembly.GreedyAlgorithm.GreedyResult greedyResult =
+                greedy.assemble(new ArrayList<>(preScreen.topCandidates));
+
+        List<QuestionScore> selected = greedyResult.selected();
+        List<Long> questionIds = selected.stream()
+                .map(QuestionScore::getQuestionId).collect(Collectors.toList());
+
+        return AIAssemblyStrategyVO.builder()
+                .questionIds(questionIds)
+                .totalQuestions(questionIds.size())
+                .actualTotalScore(questionIds.size() * 10)
+                .difficultyAvg(inferenceResult.getParams().getDifficultyAvg())
+                .build();
+    }
+
+    /**
+     * 候选为空时的空结果
+     */
+    private AIAssemblyStrategyVO buildEmptyResult(StrategyInferenceService.StrategyInferenceResult inferenceResult,
+                                                   PaperStrategy strategy, String errorMsg) {
+        return AIAssemblyStrategyVO.builder()
+                .questionIds(Collections.emptyList())
+                .totalQuestions(0)
+                .actualTotalScore(0)
+                .difficultyAvg(inferenceResult.getParams().getDifficultyAvg())
+                .build();
+    }
+
+    /**
+     * 预筛结果内部类
+     */
+    @lombok.Value
+    private static class PreScreenResult {
+        List<QuestionScore> topCandidates;
+        AssemblyConstraint constraints;
+        int totalCandidates;
     }
 }

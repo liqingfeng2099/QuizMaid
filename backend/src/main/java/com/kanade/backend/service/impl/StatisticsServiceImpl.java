@@ -227,6 +227,37 @@ public class StatisticsServiceImpl implements StatisticsService {
         return papers;
     }
 
+    // 获取全部题型正确率统计，调用mapper查询并设置名称、正确率、得分率 .hml
+    @Override
+    public List<QuestionTypeStatVO> getTypeAccuracy() {
+        List<QuestionTypeStatVO> list = statisticsMapper.selectTypeAccuracy();
+        for (QuestionTypeStatVO vo : list) {
+            vo.setQuestionTypeName(getQuestionTypeName(vo.getQuestionType()));
+            vo.setCorrectRate(calcRate(vo.getCorrectCount(), vo.getTotalCount()));
+            vo.setScoreRate(calcRate(
+                    vo.getTotalActualScore() != null ? vo.getTotalActualScore().longValue() : 0,
+                    vo.getTotalQuestionScore() != null ? vo.getTotalQuestionScore().longValue() : 0));
+        }
+        return list;
+    }
+
+    // 获取指定试卷的题型正确率统计，校验参数后调用mapper并设置名称、正确率、得分率 .hml
+    @Override
+    public List<QuestionTypeStatVO> getPaperTypeAccuracy(Long paperId) {
+        if (paperId == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "试卷ID不能为空");
+        }
+        List<QuestionTypeStatVO> list = statisticsMapper.selectPaperTypeAccuracy(paperId);
+        for (QuestionTypeStatVO vo : list) {
+            vo.setQuestionTypeName(getQuestionTypeName(vo.getQuestionType()));
+            vo.setCorrectRate(calcRate(vo.getCorrectCount(), vo.getTotalCount()));
+            vo.setScoreRate(calcRate(
+                    vo.getTotalActualScore() != null ? vo.getTotalActualScore().longValue() : 0,
+                    vo.getTotalQuestionScore() != null ? vo.getTotalQuestionScore().longValue() : 0));
+        }
+        return list;
+    }
+
     // ========== 辅助方法 ==========
 
     private BigDecimal computeMedian(List<Integer> sortedScores) {

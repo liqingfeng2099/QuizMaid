@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useLoginUserStore } from '@/stores/loginUser'
 import UserManager from '@/components/UserManager.vue'
 import QuestionManager from '@/components/QuestionManager.vue'
+import AdminPaperManager from '@/components/AdminPaperManager.vue'
 
 const loginUserStore = useLoginUserStore()
 
@@ -20,6 +21,9 @@ onMounted(async () => {
       </a-tab-pane>
       <a-tab-pane key="questions" tab="题目管理">
         <QuestionManager />
+      </a-tab-pane>
+      <a-tab-pane key="papers" tab="试卷管理">
+        <AdminPaperManager />
       </a-tab-pane>
     </a-tabs>
   </div>

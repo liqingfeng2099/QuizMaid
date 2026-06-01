@@ -40,75 +40,144 @@ public class RecommendServiceImpl implements RecommendService {
         int count = dto.getCount() != null ? Math.clamp(dto.getCount(), 5, 30) : 15;
         String tendency = dto.getDifficultyTendency() != null ? dto.getDifficultyTendency() : "balanced";
 
-        // 1. 获取用户错题的知识点、题型、难度
+        log.info("[错题推荐] 开始, userId={}, count={}, tendency={}", userId, count, tendency);
+
+        // 1. 获取用户错题
         QueryWrapper ebQw = QueryWrapper.create().eq("userId", userId).eq("isArchived", 0);
         List<ErrorBook> errors = errorBookMapper.selectListByQuery(ebQw);
-        if (errors.isEmpty()) return Collections.emptyList();
+        log.info("[错题推荐] ① 未归档错题数: {}", errors.size());
+
+        if (errors.isEmpty()) {
+            // 检查是否有已归档的错题
+            long archivedCount = errorBookMapper.selectCountByQuery(
+                    QueryWrapper.create().eq("userId", userId).eq("isArchived", 1));
+            log.warn("[错题推荐] 无未归档错题(已归档:{}道), 返回空", archivedCount);
+            return Collections.emptyList();
+        }
 
         List<Long> errorQids = errors.stream().map(ErrorBook::getQuestionId).toList();
         List<Question> errorQuestions = questionService.listByIds(errorQids);
+        log.info("[错题推荐] ② 错题关联题目数: {}(错题)/{}(有效)", errorQids.size(), errorQuestions.size());
+
+        if (errorQuestions.isEmpty()) {
+            log.error("[错题推荐] 所有错题关联的原始题目均已被删除, errorQids={}", errorQids);
+            return Collections.emptyList();
+        }
+
         Map<Long, Question> eqMap = errorQuestions.stream()
                 .collect(Collectors.toMap(Question::getId, q -> q));
 
-        // 2. 提取错题知识点，同时加载历史反馈调整权重 (C2)
+        // 2. 提取错题知识点、题型、难度
         Set<String> allKps = new HashSet<>();
         Set<Integer> allTypes = new HashSet<>();
         List<Integer> allDiffs = new ArrayList<>();
+        int kpMissingCount = 0;
         for (ErrorBook eb : errors) {
             Question q = eqMap.get(eb.getQuestionId());
             if (q != null) {
-                if (q.getKnowledgePoints() != null)
+                if (q.getKnowledgePoints() != null && !q.getKnowledgePoints().isBlank()) {
                     for (String kp : q.getKnowledgePoints().split(","))
                         allKps.add(kp.trim());
+                } else {
+                    kpMissingCount++;
+                }
                 if (q.getType() != null) allTypes.add(q.getType());
                 if (q.getDifficulty() != null) allDiffs.add(q.getDifficulty());
             }
         }
+        log.info("[错题推荐] ③ 提取: KPs={}, types={}, diffs={}, 缺知识点题数={}",
+                allKps, allTypes, allDiffs, kpMissingCount);
 
-        // 3. 加载历史反馈，计算每个知识点的掌握度权重 (C2)
+        if (allKps.isEmpty()) {
+            log.error("[错题推荐] 所有错题均无知识点标签, 返回空");
+            return Collections.emptyList();
+        }
+        if (allTypes.isEmpty()) {
+            log.error("[错题推荐] 无法确定错题题型, 返回空");
+            return Collections.emptyList();
+        }
+
+        // 3. 加载历史反馈权重
         Map<String, Double> kpWeights = buildKpWeights(userId, allKps);
 
         // 4. 获取过滤集合
-        Set<Long> recentCorrectQids = getRecentCorrectQuestionIds(userId);
+        Set<Long> recentCorrectQids;
+        if (Boolean.TRUE.equals(dto.getFilterRecentEnabled())) {
+            int days = dto.getFilterRecentDays() != null ? dto.getFilterRecentDays() : 30;
+            recentCorrectQids = getRecentCorrectQuestionIds(userId, days);
+        } else {
+            recentCorrectQids = Collections.emptySet();
+        }
         Set<Long> errorBookQids = new HashSet<>(errorQids);
+        log.info("[错题推荐] ④ 过滤集: 错题本{}道, 近期已做对{}(过滤{}), 天数配置={}",
+                errorBookQids.size(), recentCorrectQids.size(),
+                Boolean.TRUE.equals(dto.getFilterRecentEnabled()) ? "启用" : "关闭",
+                dto.getFilterRecentDays() != null ? dto.getFilterRecentDays() : 30);
 
-        // 5. 按知识点匹配搜索（高权重知识点优先搜索更多候选）
+        // 5. 按知识点匹配搜索（含三级降级放宽，逐级累加）
+        Set<Long> candidateIds = new HashSet<>();
         List<Question> candidates = new ArrayList<>();
-        for (String kp : allKps) {
-            double weight = kpWeights.getOrDefault(kp, 1.0);
-            int candidateLimit = (int) Math.max(20, 100 * weight); // 高权重搜更多
-            QueryWrapper qw = QueryWrapper.create()
-                    .like("knowledgePoints", kp)
-                    .eq("creatorId", userId)
-                    .limit(candidateLimit);
-            List<Question> found = questionService.list(qw);
-            for (Question q : found) {
-                if (!errorBookQids.contains(q.getId()) &&
-                    !recentCorrectQids.contains(q.getId()) &&
-                    allTypes.contains(q.getType())) {
+        int degradeLevel = 0;
+
+        // Level 0: 严格过滤
+        addCandidates(candidates, candidateIds,
+                searchCandidates(allKps, kpWeights, allTypes, userId,
+                        errorBookQids, recentCorrectQids, count, 0));
+
+        // 降级1: 取消"近30天已做对"过滤
+        if (candidates.size() < count) {
+            log.info("[错题推荐] 严格过滤仅{}道候选(需≥{}), 降级: 取消'近30天已做对'过滤",
+                    candidates.size(), count);
+            addCandidates(candidates, candidateIds,
+                    searchCandidates(allKps, kpWeights, allTypes, userId,
+                            errorBookQids, Collections.emptySet(), count, candidates.size()));
+            degradeLevel = 1;
+        }
+        // 降级2: 取消题型限制
+        if (candidates.size() < count) {
+            log.info("[错题推荐] 降级1后仅{}道候选, 继续降级: 取消题型限制", candidates.size());
+            addCandidates(candidates, candidateIds,
+                    searchCandidates(allKps, kpWeights, Collections.emptySet(), userId,
+                            errorBookQids, Collections.emptySet(), count, candidates.size()));
+            degradeLevel = 2;
+        }
+        // 降级3: 取消创建者限制（搜全库）
+        if (candidates.size() < count) {
+            log.info("[错题推荐] 降级2后仅{}道候选, 继续降级: 取消创建者限制(搜全库)", candidates.size());
+            addCandidates(candidates, candidateIds,
+                    searchCandidates(allKps, kpWeights, allTypes, null,
+                            errorBookQids, Collections.emptySet(), count, candidates.size()));
+            degradeLevel = 3;
+        }
+
+        log.info("[错题推荐] ⑥ 候选总数: {}道 (降级级别: {})", candidates.size(), degradeLevel);
+
+        // 降级4: 无新题可推 → 用错题本身做"重练推荐"
+        if (candidates.isEmpty()) {
+            log.warn("[错题推荐] 三级降级后仍无候选, 降级4: 使用错题本身作为重练推荐");
+            for (Question q : errorQuestions) {
+                if (candidateIds.add(q.getId())) {
                     candidates.add(q);
                 }
             }
-            if (candidates.size() >= count * 3) break;
+            degradeLevel = 4;
         }
 
         // 6. 按难度梯度 + 知识点权重 综合排序
         candidates.sort((a, b) -> {
             int aMatch = matchDifficulty(a.getDifficulty(), allDiffs, tendency);
             int bMatch = matchDifficulty(b.getDifficulty(), allDiffs, tendency);
-            // 知识点权重加成
             double aKpBonus = getKpBonus(a, allKps, kpWeights);
             double bKpBonus = getKpBonus(b, allKps, kpWeights);
             return Double.compare(bMatch + bKpBonus, aMatch + aKpBonus);
         });
 
-        // 7. 去重取前N
-        Set<Long> seen = new HashSet<>();
-        List<Question> selected = new ArrayList<>();
-        for (Question q : candidates) {
-            if (seen.add(q.getId())) selected.add(q);
-            if (selected.size() >= count) break;
-        }
+        // 7. 去重取前N（candidates 已在 accumulate 阶段去重，此处直接截断）
+        List<Question> selected = candidates.size() <= count
+                ? candidates
+                : candidates.subList(0, count);
+
+        log.info("[错题推荐] ⑦ 最终推荐: {}道", selected.size());
 
         return selected.stream().map(q -> {
             QuestionVO vo = new QuestionVO();
@@ -177,6 +246,51 @@ public class RecommendServiceImpl implements RecommendService {
         return weights;
     }
 
+    /**
+     * 按知识点搜索候选题目。
+     * @param creatorId 创建者限制，传 null 表示不限制（搜全库）
+     * @param skipQids 已跳过的题目ID集合（不再重复加入）
+     * @return 累积后的候选列表（会复用传入的 skip 语义做去重）
+     */
+    private List<Question> searchCandidates(Set<String> allKps, Map<String, Double> kpWeights,
+                                             Set<Integer> allowedTypes, Long creatorId,
+                                             Set<Long> excludeQids, Set<Long> recentCorrectQids,
+                                             int targetCount, int alreadyHave) {
+        List<Question> candidates = new ArrayList<>();
+        for (String kp : allKps) {
+            double weight = kpWeights.getOrDefault(kp, 1.0);
+            int candidateLimit = (int) Math.max(20, 100 * weight);
+            QueryWrapper qw = QueryWrapper.create()
+                    .like("knowledgePoints", kp)
+                    .limit(candidateLimit);
+            if (creatorId != null) {
+                qw.eq("creatorId", creatorId);
+            }
+            List<Question> found = questionService.list(qw);
+            long added = 0;
+            for (Question q : found) {
+                if (excludeQids.contains(q.getId())) continue;
+                if (!recentCorrectQids.isEmpty() && recentCorrectQids.contains(q.getId())) continue;
+                if (!allowedTypes.isEmpty() && !allowedTypes.contains(q.getType())) continue;
+                candidates.add(q);
+                added++;
+            }
+            log.debug("[错题推荐] ⑤ KP='{}'(权重{:.2f}): 找到{}道, 加入{}道",
+                    kp, weight, found.size(), added);
+            if (candidates.size() + alreadyHave >= targetCount * 3) break;
+        }
+        return candidates;
+    }
+
+    /** 去重追加候选题目 */
+    private void addCandidates(List<Question> target, Set<Long> seenIds, List<Question> source) {
+        for (Question q : source) {
+            if (seenIds.add(q.getId())) {
+                target.add(q);
+            }
+        }
+    }
+
     private double getKpBonus(Question q, Set<String> allKps, Map<String, Double> kpWeights) {
         if (q == null || q.getKnowledgePoints() == null) return 0;
         double bonus = 0;
@@ -197,12 +311,12 @@ public class RecommendServiceImpl implements RecommendService {
         return Math.abs(diff - Math.round(avg)) <= 1 ? 3 : 1;
     }
 
-    private Set<Long> getRecentCorrectQuestionIds(Long userId) {
+    private Set<Long> getRecentCorrectQuestionIds(Long userId, int days) {
         Set<Long> ids = new HashSet<>();
         try {
             QueryWrapper uerQw = QueryWrapper.create()
                     .eq("userId", userId)
-                    .ge("createTime", LocalDateTime.now().minusDays(30));
+                    .ge("createTime", LocalDateTime.now().minusDays(days));
             List<Long> recordIds = userexamrecordMapper.selectListByQuery(uerQw)
                     .stream().map(r -> r.getId()).toList();
             if (recordIds.isEmpty()) return ids;

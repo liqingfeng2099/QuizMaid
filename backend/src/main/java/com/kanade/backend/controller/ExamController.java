@@ -46,17 +46,20 @@ public class ExamController {
         Map<Long, String> answers = new HashMap<>();
         Object ansObj = body.getAnswers();
 
-        if (ansObj instanceof List<?> list) {
+        if (ansObj instanceof List) {
             // 格式: [{"questionId": 1, "userAnswer": "A"}, ...]
+            List<?> list = (List<?>) ansObj;
             for (Object item : list) {
-                if (item instanceof Map<?,?> m) {
-                    Long qid = m.get("questionId") instanceof Number n ? n.longValue() : null;
+                if (item instanceof Map) {
+                    Map<?,?> m = (Map<?,?>) item;
+                    Long qid = m.get("questionId") instanceof Number ? ((Number) m.get("questionId")).longValue() : null;
                     String ua = m.get("userAnswer") != null ? m.get("userAnswer").toString() : "";
                     if (qid != null) answers.put(qid, ua);
                 }
             }
-        } else if (ansObj instanceof Map<?,?> map) {
+        } else if (ansObj instanceof Map) {
             // 格式: {"1": "A", "2": "BCD", ...}
+            Map<?,?> map = (Map<?,?>) ansObj;
             map.forEach((k, v) -> {
                 try {
                     Long qid = Long.parseLong(k.toString());

@@ -8,4 +8,5 @@ public class ExamPaperUpdateDTO {
     private String paperName;
     private String subject;
     private Integer totalScore;
+    private Integer duration; // 答题时长（分钟）
 }

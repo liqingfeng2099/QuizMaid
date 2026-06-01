@@ -13,6 +13,15 @@ import java.util.List;
 @AllArgsConstructor
 public class AIAssemblyStrategyVO {
 
+    /** 关联的策略ID（A+C模式下持久化的 PaperStrategy.id） */
+    private Long strategyId;
+
+    /** 策略描述（LLM推断的一句话摘要） */
+    private String strategyDescription;
+
+    /** 组卷阶段详情（用于前端展示流程） */
+    private String stageDetail;
+
     private Integer difficultyAvg;
     private List<DifficultyConfig> difficultyConfig;
     private List<TypeConfig> questionTypeConfig;

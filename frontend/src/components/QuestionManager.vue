@@ -13,10 +13,22 @@
           批量导入
         </a-button>
         <a-input-search
-          placeholder="请输入题目内容搜索"
+          :placeholder="searchMode === 'fulltext' ? 'ES全文检索（支持分词）' : '请输入题目内容搜索'"
           style="width: 300px; margin-left: 16px"
           v-model:value="searchText"
           @search="handleSearch"
+        >
+          <template #enterButton>
+            <a-button type="primary">{{ searchMode === 'fulltext' ? '全文搜' : '搜索' }}</a-button>
+          </template>
+        </a-input-search>
+        <a-switch
+          v-model:checked="searchMode === 'fulltext'"
+          @change="(v: boolean|string|number) => searchMode = v ? 'fulltext' : 'exact'"
+          checked-children="ES"
+          un-checked-children="普通"
+          size="small"
+          style="margin-left: 8px;"
         />
       </div>
 
@@ -185,7 +197,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { UploadOutlined } from '@ant-design/icons-vue'
-import { addQuestion, deleteQuestion, updateQuestion, listQuestionByPage, listAllQuestionByPage } from '@/api/shitiguanli'
+import { addQuestion, deleteQuestion, updateQuestion, listQuestionByPage, listAllQuestionByPage, searchQuestions } from '@/api/shitiguanli'
 import { uploadExcel, getImportStatus } from '@/api/questionImportController'
 import { useLoginUserStore } from '@/stores/loginUser'
 import type { FormInstance } from 'ant-design-vue'
@@ -304,6 +316,7 @@ const formState = reactive({
 
 // 搜索相关
 const searchText = ref('')
+const searchMode = ref<'exact'|'fulltext'>('exact')
 
 // 使用登录用户 store
 const loginUserStore = useLoginUserStore()
@@ -334,8 +347,12 @@ const loadQuestionList = async () => {
 
     let res
     const currentUser = getCurrentUser()
-    // 管理员使用 listAllQuestionByPage 接口，普通用户使用 listQuestionByPage 接口
-    if (currentUser?.role === 'admin') {
+    // ES全文检索模式
+    if (searchMode.value === 'fulltext' && searchText.value) {
+      const esQuery: any = { pageNum: pagination.current, pageSize: pagination.pageSize }
+      if (currentUser?.role !== 'admin') Object.assign(esQuery, { creatorId: currentUser?.id })
+      res = await searchQuestions(searchText.value, esQuery)
+    } else if (currentUser?.role === 'admin') {
       res = await listAllQuestionByPage(query)
     } else {
       // 普通用户只能查看自己的题目

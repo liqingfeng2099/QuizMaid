@@ -4,6 +4,7 @@ import cn.hutool.json.JSONUtil;
 import com.kanade.backend.model.entity.PaperStrategy;
 import com.kanade.backend.model.entity.StrategyWeight;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -15,6 +16,9 @@ public class AssemblyContext {
     private List<QuestionScore> candidatePool;
     private AssemblyConstraint constraints;
     private Map<IndicatorEnum, Integer> weightMap;
+
+    /** 策略指定的目标知识点范围（用于加权匹配） */
+    private List<String> knowledgePointScope;
 
     public AssemblyContext() {}
 
@@ -32,6 +36,9 @@ public class AssemblyContext {
 
     public Map<IndicatorEnum, Integer> getWeightMap() { return weightMap; }
     public void setWeightMap(Map<IndicatorEnum, Integer> map) { this.weightMap = map; }
+
+    public List<String> getKnowledgePointScope() { return knowledgePointScope; }
+    public void setKnowledgePointScope(List<String> scope) { this.knowledgePointScope = scope; }
 
     public static AssemblyContext from(PaperStrategy strategy, List<StrategyWeight> weights, List<QuestionScore> candidates) {
         Map<IndicatorEnum, Integer> wMap = weights.stream()
@@ -70,12 +77,23 @@ public class AssemblyContext {
             constraints.setDifficultyRatios(diffMap);
         }
 
+        // 解析知识点范围
+        List<String> kpScope = Collections.emptyList();
+        if (strategy.getKnowledgePointScope() != null && !strategy.getKnowledgePointScope().isBlank()) {
+            try {
+                @SuppressWarnings("unchecked")
+                List<String> parsed = (List<String>) JSONUtil.toList(strategy.getKnowledgePointScope(), String.class);
+                if (parsed != null) kpScope = parsed;
+            } catch (Exception ignored) {}
+        }
+
         AssemblyContext ctx = new AssemblyContext();
         ctx.strategy = strategy;
         ctx.weights = weights;
         ctx.candidatePool = candidates;
         ctx.constraints = constraints;
         ctx.weightMap = wMap;
+        ctx.knowledgePointScope = kpScope;
         return ctx;
     }
 }

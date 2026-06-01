@@ -115,15 +115,25 @@
     <template v-if="viewMode === 'recommend'">
       <a-card size="small" style="margin-bottom: 12px;">
         <a-row :gutter="12" align="middle">
-          <a-col :span="4"><span>推荐数量：</span><a-input-number v-model:value="recCount" :min="5" :max="30" size="small" /></a-col>
-          <a-col :span="4">
+          <a-col :span="3"><span>推荐数量：</span><a-input-number v-model:value="recCount" :min="5" :max="30" size="small" /></a-col>
+          <a-col :span="3">
             <a-select v-model:value="recTendency" size="small">
               <a-select-option value="basic">基础</a-select-option>
               <a-select-option value="balanced">均衡</a-select-option>
               <a-select-option value="advanced">进阶</a-select-option>
             </a-select>
           </a-col>
-          <a-col :span="4"><a-checkbox v-model:checked="recIncludeAnalysis">含解析</a-checkbox></a-col>
+          <a-col :span="3"><a-checkbox v-model:checked="recIncludeAnalysis">含解析</a-checkbox></a-col>
+          <a-col :span="7">
+            <a-checkbox v-model:checked="recFilterRecentEnabled">过滤近期做对</a-checkbox>
+            <a-input-number
+              v-if="recFilterRecentEnabled"
+              v-model:value="recFilterRecentDays"
+              :min="1" :max="365" size="small"
+              style="width:70px;margin-left:4px"
+              addon-after="天"
+            />
+          </a-col>
           <a-col :span="4"><a-button type="primary" size="small" @click="loadRecommend" :loading="recLoading">获取推荐</a-button></a-col>
         </a-row>
       </a-card>
@@ -145,7 +155,7 @@
     </template>
 
     <!-- 强化组卷弹窗 -->
-    <a-modal v-model:open="showAssemblyModal" title="错题专项强化组卷" @ok="handleAssembly" :ok-text="'开始组卷'">
+    <a-modal v-model:open="showAssemblyModal" title="错题专项强化组卷" @ok="handleAssembly" :ok-text="'开始组卷'" :confirm-loading="assemblyLoading">
       <a-form layout="vertical">
         <a-form-item label="试卷名称"><a-input v-model:value="asmPaperName" placeholder="错题强化卷" /></a-form-item>
         <a-form-item label="目标题数"><a-input-number v-model:value="asmQuestionCount" :min="5" :max="50" style="width:100%;" /></a-form-item>
@@ -159,8 +169,8 @@
     </a-modal>
 
     <!-- 预览弹窗 -->
-    <a-modal v-model:open="previewVisible" title="错题集预览" width="700px" :footer="null">
-      <div v-html="previewHtml" style="max-height:500px;overflow-y:auto;"></div>
+    <a-modal v-model:open="previewVisible" title="错题集预览" width="800px" :footer="null">
+      <div class="preview-container" v-html="previewHtml"></div>
     </a-modal>
   </div>
 </template>
@@ -274,6 +284,8 @@ watch(viewMode, (v) => { if (v==='charts') loadStats() })
 const recCount = ref(15)
 const recTendency = ref('balanced')
 const recIncludeAnalysis = ref(true)
+const recFilterRecentEnabled = ref(true)
+const recFilterRecentDays = ref(30)
 const recLoading = ref(false)
 const recList = ref<any[]>([])
 const recColumns = [
@@ -288,7 +300,7 @@ const getDiffName = (d: number) => ({ 1:'简单', 2:'中等', 3:'困难' }[d] ||
 const loadRecommend = async () => {
   recLoading.value = true
   try {
-    const res = await recommendQuestions({ count: recCount.value, difficultyTendency: recTendency.value, includeAnalysis: recIncludeAnalysis.value })
+    const res = await recommendQuestions({ count: recCount.value, difficultyTendency: recTendency.value, includeAnalysis: recIncludeAnalysis.value, filterRecentEnabled: recFilterRecentEnabled.value, filterRecentDays: recFilterRecentDays.value })
     if (res.data.code === 0) recList.value = res.data.data || []
   } catch { recList.value = [] }
   recLoading.value = false
@@ -303,6 +315,98 @@ const handleBatchDelete = async () => {
 }
 const handleBatchReview = async (status: number) => {
   try { await batchUpdateReviewStatus(selectedIds.value, status); message.success('已更新'); loadErrors() } catch { message.error('失败') }
+}
+
+// ===== 导出/预览 =====
+const previewVisible = ref(false); const previewHtml = ref('')
+/** 剥离预览 HTML 中的 style/body/html 标签，防止污染外层页面样式 */
+function sanitizePreviewHtml(raw: string): string {
+  let s = raw
+  // 去掉 <style>...</style>
+  s = s.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+  // 去掉 <html> / <head> / <body> 标签本身（保留内容）
+  s = s.replace(/<\/?(html|head|body)[^>]*>/gi, '')
+  // 去掉 DOCTYPE
+  s = s.replace(/<!DOCTYPE[^>]*>/gi, '')
+  return s
+}
+
+const handlePreview = async () => {
+  try {
+    const res = await previewErrorBook()
+    if (res.data.code === 0) {
+      previewHtml.value = sanitizePreviewHtml(res.data.data || '')
+      previewVisible.value = true
+    }
+  } catch { /* ignore */ }
+}
+const handleExportExcel = async () => {
+  try { const res=await exportErrorBookExcel(); const b=new Blob([res.data as any]); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='错题集.csv'; a.click() } catch { message.error('导出失败') }
+}
+
+// ===== 强化组卷 =====
+const showAssemblyModal = ref(false); const asmPaperName = ref('错题强化卷')
+const asmQuestionCount = ref(15); const asmDifficulty = ref<number|undefined>(2); const asmDuration = ref(45)
+const assemblyLoading = ref(false)
+const handleAssembly = async () => {
+  if (assemblyLoading.value) return
+  assemblyLoading.value = true
+  try {
+    const res = await reinforceAssemble({ paperName: asmPaperName.value, questionCount: asmQuestionCount.value, difficultyAvg: asmDifficulty.value, duration: asmDuration.value })
+    if (res.data.code === 0) {
+      message.success('组卷成功！试卷ID: ' + res.data.data?.id)
+      showAssemblyModal.value = false
+    } else {
+      message.error(res.data.message || '组卷失败')
+    }
+  } catch (e: any) {
+    const msg = e?.response?.data?.message || e?.message || '组卷请求失败，请稍后重试'
+    message.error(msg)
+  } finally {
+    assemblyLoading.value = false
+  }
+}
+
+onMounted(() => { loadErrors() })
+onUnmounted(() => { chartInstances.forEach(c=>c.dispose()) })
+</script>
+
+<style scoped>
+.error-book-page { padding: 0; }
+
+/* 预览容器：隔离预览内容，防止污染外层样式 */
+.preview-container {
+  max-height: 65vh;
+  overflow-y: auto;
+  font-family: 'Microsoft YaHei', sans-serif;
+  line-height: 1.8;
+}
+/* 恢复预览内基础样式（原 style 标签被剥离后用 scoped 补充） */
+.preview-container :deep(.q-item) {
+  border: 1px solid #e8e8e8;
+  padding: 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+.preview-container :deep(.q-title) {
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+.preview-container :deep(.q-content) {
+  margin: 8px 0;
+}
+.preview-container :deep(.q-answer) {
+  color: #52c41a;
+  margin-top: 4px;
+}
+.preview-container :deep(.q-meta) {
+  color: #999;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.preview-container :deep(h2) {
+  font-size: 18px;
+  margin-bottom: 16px;
 }
 
 // ===== 导出/预览 =====

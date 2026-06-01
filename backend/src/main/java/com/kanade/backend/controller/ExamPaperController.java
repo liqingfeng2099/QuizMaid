@@ -270,6 +270,7 @@ public class ExamPaperController {
         }
         AIAssemblyStrategyVO strategy = new AIAssemblyStrategyVO();
         try {
+            @SuppressWarnings("unchecked")
             Map<String, Object> map = cn.hutool.json.JSONUtil.toBean(chat.getAiResponse(), Map.class);
             Object idsObj = map.get("questionIds");
             if (idsObj instanceof List) {

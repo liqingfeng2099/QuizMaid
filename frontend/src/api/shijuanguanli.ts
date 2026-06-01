@@ -159,6 +159,65 @@ export async function listPaperStrategyByPage(
   })
 }
 
+/** 更新策略 POST /paperStrategy/update */
+export async function updatePaperStrategy(
+  body: API.PaperStrategyUpdateDTO,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponsePaperStrategyVO>('/paperStrategy/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    data: body,
+    ...(options || {}),
+  })
+}
+
+/** 删除策略 POST /paperStrategy/delete */
+export async function deletePaperStrategy(
+  body: API.DeleteRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>('/paperStrategy/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    data: body,
+    ...(options || {}),
+  })
+}
+
+/** 获取策略详情 GET /paperStrategy/get/{id} */
+export async function getPaperStrategyById(
+  id: number,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponsePaperStrategyVO>(`/paperStrategy/get/${id}`, {
+    method: 'GET',
+    ...(options || {}),
+  })
+}
+
+/** 设为默认策略 POST /paperStrategy/setDefault/{id} */
+export async function setDefaultStrategy(
+  id: number,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>(`/paperStrategy/setDefault/${id}`, {
+    method: 'POST',
+    ...(options || {}),
+  })
+}
+
+/** 复制策略 POST /paperStrategy/copy/{id} */
+export async function copyPaperStrategy(
+  id: number,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponsePaperStrategyVO>(`/paperStrategy/copy/${id}`, {
+    method: 'POST',
+    ...(options || {}),
+  })
+}
+
 /** 贪心算法组卷 POST /paperStrategy/assemble/greedy */
 export async function greedyAssemble(
   body: API.AssemblyRequestDTO,

@@ -35,9 +35,9 @@ public class PaperCacheService {
         if (cached != null) return cached;
         // L2: Redis
         Object val = jsonRedisTemplate.opsForValue().get("cache:paper:" + paperId);
-        if (val instanceof ExamPaperVO vo) {
-            paperDetailCache.put(paperId, vo);
-            return vo;
+        if (val instanceof ExamPaperVO) {
+            paperDetailCache.put(paperId, (ExamPaperVO) val);
+            return (ExamPaperVO) val;
         }
         return null;
     }
@@ -58,9 +58,9 @@ public class PaperCacheService {
         PaperStrategyVO cached = strategyDetailCache.getIfPresent(strategyId);
         if (cached != null) return cached;
         Object val = jsonRedisTemplate.opsForValue().get("cache:strategy:" + strategyId);
-        if (val instanceof PaperStrategyVO vo) {
-            strategyDetailCache.put(strategyId, vo);
-            return vo;
+        if (val instanceof PaperStrategyVO) {
+            strategyDetailCache.put(strategyId, (PaperStrategyVO) val);
+            return (PaperStrategyVO) val;
         }
         return null;
     }

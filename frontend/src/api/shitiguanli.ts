@@ -110,3 +110,17 @@ export async function updateQuestion(
     ...(options || {}),
   })
 }
+
+/** ES全文检索试题 POST /question/search */
+export async function searchQuestions(
+  keyword: string,
+  body: API.QuestionQueryDTO,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponsePageQuestionVO>(`/question/search?keyword=${encodeURIComponent(keyword)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    data: body,
+    ...(options || {}),
+  })
+}

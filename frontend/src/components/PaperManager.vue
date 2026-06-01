@@ -50,6 +50,9 @@
         <a-button type="primary" @click="handleAIPaperAssembly">
           AI智能组卷
         </a-button>
+        <a-button @click="$router.push('/paper/strategy')">
+          策略管理
+        </a-button>
         <a-button
           danger
           @click="handleBatchDelete"
@@ -349,14 +352,62 @@
           <div v-if="aiV2Error" style="text-align:center;margin-top:8px;color:red">{{ aiV2Error }}</div>
         </a-tab-pane>
 
-        <!-- 阶段2：确认方案 -->
+        <!-- 阶段2：确认方案（A+C模式） -->
         <a-tab-pane key="review" tab="确认方案" v-if="aiV2Strategy">
-          <a-descriptions bordered size="small" :column="2">
+          <!-- 组卷流程摘要 -->
+          <a-alert
+            v-if="aiV2Strategy.stageDetail"
+            :message="aiV2Strategy.stageDetail"
+            type="info" show-icon style="margin-bottom:12px"
+          />
+
+          <!-- 策略详情 -->
+          <a-descriptions bordered size="small" :column="2" style="margin-bottom:12px">
             <a-descriptions-item label="选中题目数">{{ aiV2Strategy.totalQuestions }} 题</a-descriptions-item>
             <a-descriptions-item label="实际总分">{{ aiV2Strategy.actualTotalScore }} 分</a-descriptions-item>
-            <a-descriptions-item label="平均难度">{{ aiV2Strategy.difficultyAvg || 'AI未指定' }}</a-descriptions-item>
-            <a-descriptions-item label="算法类型">AI (DeepSeek)</a-descriptions-item>
+            <a-descriptions-item label="目标难度">{{ aiV2Strategy.difficultyAvg || '未指定' }}/5</a-descriptions-item>
+            <a-descriptions-item label="组卷模式">
+              <a-tag color="purple">A+C 混合</a-tag>
+            </a-descriptions-item>
           </a-descriptions>
+
+          <!-- LLM推断的策略配置 -->
+          <a-card v-if="aiV2Strategy.questionTypeConfig?.length" title="AI推断策略配置" size="small" style="margin-bottom:12px">
+            <template #extra>
+              <a-tag v-if="aiV2Strategy.strategyDescription" color="blue">{{ aiV2Strategy.strategyDescription }}</a-tag>
+            </template>
+
+            <!-- 题型配置 -->
+            <a-row :gutter="8" style="margin-bottom:8px">
+              <a-col :span="24">
+                <span style="font-weight:bold">题型配置：</span>
+                <a-tag v-for="tc in aiV2Strategy.questionTypeConfig" :key="tc.type" color="blue" style="margin:2px">
+                  {{ getQuestionTypeText(tc.type) }} {{ tc.count }}题×{{ tc.score }}分
+                </a-tag>
+              </a-col>
+            </a-row>
+
+            <!-- 难度分布 -->
+            <a-row :gutter="8" style="margin-bottom:8px">
+              <a-col :span="24">
+                <span style="font-weight:bold">难度分布：</span>
+                <a-tag v-for="dc in aiV2Strategy.difficultyConfig" :key="dc.level"
+                  :color="dc.level===1?'green':dc.level===2?'orange':'red'" style="margin:2px">
+                  {{ getDifficultyText(dc.level) }} {{ Math.round((dc.ratio||0)*100) }}%
+                </a-tag>
+              </a-col>
+            </a-row>
+
+            <!-- 重点知识点 -->
+            <a-row v-if="aiV2Strategy.knowledgePointScope" :gutter="8">
+              <a-col :span="24">
+                <span style="font-weight:bold">重点知识点：</span>
+                <a-tag v-for="kp in aiV2Strategy.knowledgePointScope.split(',')" :key="kp" color="purple" style="margin:2px">
+                  {{ kp }}
+                </a-tag>
+              </a-col>
+            </a-row>
+          </a-card>
 
           <a-divider>选中题目预览</a-divider>
           <a-table
@@ -1169,6 +1220,17 @@ const getQuestionTypeText = (type?: number) => {
     5: '简答题'
   }
   return textMap[type || 0] || '未知'
+}
+
+const getDifficultyText = (level?: number) => {
+  const textMap: Record<number, string> = {
+    1: '简单',
+    2: '中等',
+    3: '困难',
+    4: '较难',
+    5: '极难'
+  }
+  return textMap[level || 0] || '未知'
 }
 
 // 手动组卷

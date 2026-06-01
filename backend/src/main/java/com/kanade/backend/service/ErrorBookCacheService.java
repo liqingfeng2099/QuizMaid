@@ -39,10 +39,10 @@ public class ErrorBookCacheService {
         // L2: Redis
         String key = "cache:errorbook:list:" + userId + ":" + pageNum;
         Object val = jsonRedisTemplate.opsForValue().get(key);
-        if (val instanceof Page<?> page) {
-            errorBookListCache.put(userId, (Page<ErrorBook>) page); // 回填L1
+        if (val instanceof Page) {
+            errorBookListCache.put(userId, (Page<ErrorBook>) val); // 回填L1
             log.debug("[错题缓存] L2命中: userId={}", userId);
-            return (Page<ErrorBook>) page;
+            return (Page<ErrorBook>) val;
         }
         return null;
     }
@@ -65,9 +65,9 @@ public class ErrorBookCacheService {
         // L2
         String key = "cache:errorbook:stats:" + userId;
         Object val = jsonRedisTemplate.opsForValue().get(key);
-        if (val instanceof Map<?, ?> map) {
-            errorBookStatsCache.put(userId, (Map<String, Object>) map);
-            return (Map<String, Object>) map;
+        if (val instanceof Map) {
+            errorBookStatsCache.put(userId, (Map<String, Object>) val);
+            return (Map<String, Object>) val;
         }
         return null;
     }

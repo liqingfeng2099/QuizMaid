@@ -18,6 +18,14 @@
         <ReadOutlined />
         <span>试卷管理</span>
       </a-menu-item>
+      <a-menu-item key="paper/assembly">
+        <FormOutlined />
+        <span>试卷组卷</span>
+      </a-menu-item>
+      <a-menu-item key="paper/strategy">
+        <ApartmentOutlined />
+        <span>组卷策略</span>
+      </a-menu-item>
       <a-menu-item key="exam">
         <AuditOutlined />
         <span>考试中心</span>
@@ -50,6 +58,8 @@ import {
   HomeOutlined,
   FileTextOutlined,
   ReadOutlined,
+  FormOutlined,
+  ApartmentOutlined,
   AuditOutlined,
   CloseCircleOutlined,
   BarChartOutlined,
@@ -62,7 +72,8 @@ const route = useRoute()
 const loginUserStore = useLoginUserStore()
 
 const currentRoute = computed(() => {
-  const path = route.path.replace('/', '')
+  // 去掉前导 /，保留完整子路径 (如 paper/assembly)
+  const path = route.path.startsWith('/') ? route.path.slice(1) : route.path
   return path || 'home'
 })
 

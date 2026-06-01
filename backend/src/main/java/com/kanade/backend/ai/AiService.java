@@ -18,4 +18,7 @@ public interface AiService {
 
     @SystemMessage(fromResource = "prompt/paperAssembly.txt")
     String generatePaperAssembly(String userMessage);
+
+    @SystemMessage(fromResource = "prompt/strategyInference.txt")
+    String generateStrategyInference(String userMessage);
 }

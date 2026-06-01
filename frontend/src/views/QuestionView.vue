@@ -44,6 +44,16 @@
               {{ getStatusText(record.status) }}
             </a-tag>
           </template>
+          <template v-if="column.key === 'accuracy'">
+            <a-progress
+              v-if="record.totalCount > 0"
+              :percent="Number((record.accuracy || 0) * 100)"
+              :stroke-color="getAccuracyColor(record.accuracy)"
+              size="small"
+              :format="() => (Number((record.accuracy || 0) * 100)).toFixed(1) + '%'"
+            />
+            <span v-else style="color: #999;">暂无数据</span>
+          </template>
           <template v-if="column.key === 'action'">
             <a-space>
               <a-button type="link" size="small" @click="handleView(record)">
@@ -254,6 +264,23 @@ const columns = [
     title: '状态',
     dataIndex: 'status',
     key: 'status',
+  },
+  {
+    title: '答题次数',
+    dataIndex: 'totalCount',
+    key: 'totalCount',
+    width: 100,
+  },
+  {
+    title: '正确次数',
+    dataIndex: 'correctCount',
+    key: 'correctCount',
+    width: 100,
+  },
+  {
+    title: '正确率',
+    key: 'accuracy',
+    width: 140,
   },
   {
     title: '操作',
@@ -646,6 +673,13 @@ const getStatusText = (status?: number) => {
     3: '停用',
   }
   return textMap[status || 0] || '未知'
+}
+
+const getAccuracyColor = (accuracy?: number) => {
+  if (accuracy == null) return '#999'
+  if (accuracy >= 0.8) return '#52c41a'
+  if (accuracy >= 0.5) return '#1890ff'
+  return '#ff4d4f'
 }
 
 // 解析标签字符串为数组

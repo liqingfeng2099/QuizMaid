@@ -63,7 +63,7 @@ export async function getWeakKnowledgePoints() {
 }
 
 // ===== 同类错题推荐 =====
-export async function recommendQuestions(body: { count?: number; difficultyTendency?: string; includeAnalysis?: boolean }) {
+export async function recommendQuestions(body: { count?: number; difficultyTendency?: string; includeAnalysis?: boolean; filterRecentEnabled?: boolean; filterRecentDays?: number }) {
   return request<API.BaseResponseListQuestionVO>('/error-book/recommend', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, data: body,
   })
@@ -109,7 +109,12 @@ export async function listNotes(errorBookId: number) {
 
 // ===== 导出 =====
 export async function exportErrorBookExcel() {
-  return request<Blob>('/error-book/export/excel', { method: 'POST', responseType: 'blob' })
+  return request<Blob>('/error-book/export/excel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    data: {},
+    responseType: 'blob',
+  })
 }
 export async function previewErrorBook() {
   return request<API.BaseResponseString>('/error-book/export/preview', { method: 'GET' })

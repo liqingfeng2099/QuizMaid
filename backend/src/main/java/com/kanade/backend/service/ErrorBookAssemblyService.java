@@ -43,10 +43,24 @@ public class ErrorBookAssemblyService {
         // 1. 获取用户错题，提取特征
         QueryWrapper ebQw = QueryWrapper.create().eq("userId", userId).eq("isArchived", 0);
         List<ErrorBook> errors = errorBookMapper.selectListByQuery(ebQw);
-        if (errors.isEmpty()) throw new BusinessException(ErrorCode.PARAMS_ERROR, "没有可用的错题");
+        if (errors.isEmpty()) {
+            // 检查是否全部已归档
+            long archivedCount = errorBookMapper.selectCountByQuery(
+                    QueryWrapper.create().eq("userId", userId).eq("isArchived", 1));
+            if (archivedCount > 0) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                        "没有可用的错题：您有 " + archivedCount + " 道错题已归档，请先取消归档后再组卷");
+            }
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "没有可用的错题，请先完成考试积累错题后再组卷");
+        }
 
         List<Long> errorQids = errors.stream().map(ErrorBook::getQuestionId).toList();
         List<Question> errorQuestions = questionService.listByIds(errorQids);
+        if (errorQuestions.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "错题关联的原始题目已被删除（" + errorQids.size() + " 道错题均失效），无法组卷");
+        }
 
         // 提取知识点
         Set<String> kpSet = new HashSet<>();
@@ -54,6 +68,10 @@ public class ErrorBookAssemblyService {
             if (q.getKnowledgePoints() != null)
                 for (String kp : q.getKnowledgePoints().split(","))
                     kpSet.add(kp.trim());
+        }
+        if (kpSet.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "错题均未标注知识点，无法构建组卷策略。请先为题目添加知识点标签");
         }
 
         // 2. 复用统一组卷策略体系：创建临时策略（错题知识点权重≥70%）
@@ -111,7 +129,9 @@ public class ErrorBookAssemblyService {
         AssemblyResultVO result = assemblyOrchestrator.greedyAssemble(request, strategy, weights, userId);
 
         if (result.getTotalQuestions() == 0) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "组卷失败：候选题目不足");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "组卷失败：错题知识点 [" + String.join(", ", kpSet) + "] 在科目「" + subject
+                    + "」下未找到符合条件的题目。请扩充题库或调整筛选条件");
         }
 
         // 4. 保存试卷

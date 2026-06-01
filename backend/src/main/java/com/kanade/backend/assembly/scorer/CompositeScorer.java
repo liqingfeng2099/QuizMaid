@@ -7,6 +7,7 @@ import com.kanade.backend.model.entity.Question;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -64,9 +65,41 @@ public class CompositeScorer {
             }
         }
 
+        // 知识点范围匹配加分：当策略指定了目标知识点时，匹配越多得分越高
+        double kpBonus = calculateKpOverlapBonus(q);
+        double compositeScore = total / 100.0 + kpBonus;
+
         qs.setNormalizedValues(normValues);
-        qs.setCompositeScore(total / 100.0);
+        qs.setCompositeScore(Math.min(1.0, compositeScore));
         return qs;
+    }
+
+    /**
+     * 计算题目知识点与策略目标知识点的重叠加分
+     * 匹配 1 个 +0.03，2 个 +0.06，3+ 个 +0.10（封顶）
+     */
+    private double calculateKpOverlapBonus(Question q) {
+        List<String> targetKps = context.getKnowledgePointScope();
+        if (targetKps == null || targetKps.isEmpty()) return 0;
+
+        String qKps = q.getKnowledgePoints();
+        if (qKps == null || qKps.isBlank()) return 0;
+
+        int matchCount = 0;
+        for (String qKp : qKps.split(",")) {
+            String trimmed = qKp.trim();
+            for (String target : targetKps) {
+                if (trimmed.contains(target) || target.contains(trimmed)) {
+                    matchCount++;
+                    break;
+                }
+            }
+        }
+
+        if (matchCount == 0) return 0;
+        if (matchCount == 1) return 0.03;
+        if (matchCount == 2) return 0.06;
+        return 0.10; // 3+ matches
     }
 
     private double extractRawValue(Question q, IndicatorEnum indicator) {

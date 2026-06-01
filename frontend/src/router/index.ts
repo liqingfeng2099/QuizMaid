@@ -25,6 +25,11 @@ const routes = [
     path: "/question",
     component: () => import("@/views/QuestionView.vue")
   },
+  // 题型正确率统计页面路由 .hml
+  {
+    path: "/question-stats",
+    component: () => import("@/views/QuestionStatsView.vue")
+  },
   {
     path: "/paper",
     component: () => import("@/views/PaperView.vue")
@@ -32,6 +37,14 @@ const routes = [
   {
     path: "/paper/assembly",
     component: () => import("@/views/AssemblyView.vue")
+  },
+  {
+    path: "/paper/strategy",
+    component: () => import("@/views/StrategyManageView.vue")
+  },
+  {
+    path: "/paper/ai-assembly",
+    component: () => import("@/views/AiAssemblyView.vue")
   },
   {
     path: "/exam",
