@@ -47,10 +47,10 @@
           <template v-if="column.key === 'accuracy'">
             <a-progress
               v-if="record.totalCount > 0"
-              :percent="Number((record.accuracy || 0) * 100)"
+              :percent="Number(record.accuracy || 0)"
               :stroke-color="getAccuracyColor(record.accuracy)"
               size="small"
-              :format="() => (Number((record.accuracy || 0) * 100)).toFixed(1) + '%'"
+              :format="() => Number(record.accuracy || 0).toFixed(1) + '%'"
             />
             <span v-else style="color: #999;">暂无数据</span>
           </template>
@@ -677,8 +677,8 @@ const getStatusText = (status?: number) => {
 
 const getAccuracyColor = (accuracy?: number) => {
   if (accuracy == null) return '#999'
-  if (accuracy >= 0.8) return '#52c41a'
-  if (accuracy >= 0.5) return '#1890ff'
+  if (accuracy >= 80) return '#52c41a'
+  if (accuracy >= 50) return '#1890ff'
   return '#ff4d4f'
 }
 
