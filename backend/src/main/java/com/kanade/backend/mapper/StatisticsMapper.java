@@ -129,4 +129,32 @@ public interface StatisticsMapper {
             "WHERE uer.status IN (1, 2) AND uer.isDeleted = 0 AND ep.isDeleted = 0 " +
             "ORDER BY ep.createTime DESC")
     List<PaperStatisticsVO> selectAvailablePapers();
+
+    // 查询全部题型正确率统计，按题目类型分组聚合 .hml
+    @Select("SELECT q.type AS questionType, " +
+            "COUNT(*) AS totalCount, " +
+            "SUM(CASE WHEN uad.correctStatus = 1 THEN 1 ELSE 0 END) AS correctCount, " +
+            "SUM(COALESCE(uad.actualScore, 0)) AS totalActualScore, " +
+            "SUM(COALESCE(uad.questionScore, 0)) AS totalQuestionScore " +
+            "FROM useranswerdetail uad " +
+            "INNER JOIN question q ON uad.questionId = q.id " +
+            "INNER JOIN userexamrecord uer ON uad.recordId = uer.id " +
+            "WHERE uer.status IN (1, 2) " +
+            "AND uad.isDeleted = 0 AND q.isDeleted = 0 AND uer.isDeleted = 0 " +
+            "GROUP BY q.type ORDER BY q.type")
+    List<QuestionTypeStatVO> selectTypeAccuracy();
+
+    // 查询指定试卷的题型正确率统计，按题目类型分组聚合 .hml
+    @Select("SELECT q.type AS questionType, " +
+            "COUNT(*) AS totalCount, " +
+            "SUM(CASE WHEN uad.correctStatus = 1 THEN 1 ELSE 0 END) AS correctCount, " +
+            "SUM(COALESCE(uad.actualScore, 0)) AS totalActualScore, " +
+            "SUM(COALESCE(uad.questionScore, 0)) AS totalQuestionScore " +
+            "FROM useranswerdetail uad " +
+            "INNER JOIN question q ON uad.questionId = q.id " +
+            "INNER JOIN userexamrecord uer ON uad.recordId = uer.id " +
+            "WHERE uad.paperId = #{paperId} AND uer.status IN (1, 2) " +
+            "AND uad.isDeleted = 0 AND q.isDeleted = 0 AND uer.isDeleted = 0 " +
+            "GROUP BY q.type ORDER BY q.type")
+    List<QuestionTypeStatVO> selectPaperTypeAccuracy(@Param("paperId") Long paperId);
 }

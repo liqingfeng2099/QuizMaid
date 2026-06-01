@@ -63,6 +63,25 @@ export async function exportWrongExcel(
   })
 }
 
+// 获取全部题型正确率统计 GET /statistics/type-accuracy .hml
+export async function getTypeAccuracy(options?: { [key: string]: any }) {
+  return request<API.BaseResponseListQuestionTypeStatVO>('/statistics/type-accuracy', {
+    method: 'GET',
+    ...(options || {}),
+  })
+}
+
+// 获取指定试卷的题型正确率统计 GET /statistics/paper/{paperId}/type-accuracy .hml
+export async function getPaperTypeAccuracy(
+  paperId: number,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseListQuestionTypeStatVO>(
+    `/statistics/paper/${paperId}/type-accuracy`,
+    { method: 'GET', ...(options || {}) }
+  )
+}
+
 /** 获取可统计试卷列表 POST /statistics/papers-available */
 export async function getAvailablePapers(options?: { [key: string]: any }) {
   return request<API.BaseResponseListPaperStatisticsVO>(

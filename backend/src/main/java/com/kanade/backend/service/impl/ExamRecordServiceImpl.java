@@ -48,8 +48,7 @@ public class ExamRecordServiceImpl extends ServiceImpl<UserexamrecordMapper, Use
     @Resource
     private RabbitTemplate rabbitTemplate;
 
-    @Resource
-    private RabbitTemplate rabbitTemplate;
+
 
     @Override
     @Transactional
