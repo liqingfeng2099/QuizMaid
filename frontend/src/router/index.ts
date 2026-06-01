@@ -25,11 +25,6 @@ const routes = [
     path: "/question",
     component: () => import("@/views/QuestionView.vue")
   },
-  // 题型正确率统计页面路由 .hml
-  {
-    path: "/question-stats",
-    component: () => import("@/views/QuestionStatsView.vue")
-  },
   {
     path: "/paper",
     component: () => import("@/views/PaperView.vue")

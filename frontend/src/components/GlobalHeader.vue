@@ -13,7 +13,6 @@
       >
         <a-menu-item key="home">首页</a-menu-item>
         <a-menu-item key="question">试题管理</a-menu-item>
-        <a-menu-item key="question-stats">题型统计</a-menu-item> <!-- 题型统计导航菜单 .hml -->
         <a-menu-item key="paper">试卷管理</a-menu-item>
         <a-menu-item key="exam">考试中心</a-menu-item>
         <a-menu-item key="error-book">错题本</a-menu-item>

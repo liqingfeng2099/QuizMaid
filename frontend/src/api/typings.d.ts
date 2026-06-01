@@ -813,13 +813,6 @@ declare namespace API {
     message?: string
   }
 
-  // 题型正确率统计列表响应类型 .hml
-  type BaseResponseListQuestionTypeStatVO = {
-    code?: number
-    data?: QuestionTypeStatVO[]
-    message?: string
-  }
-
   type BaseResponseListTrendDataPointVO = {
     code?: number
     data?: TrendDataPointVO[]

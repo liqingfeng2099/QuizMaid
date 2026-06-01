@@ -68,24 +68,6 @@ public class StatisticsController {
         return ResultUtils.success(vo);
     }
 
-    // 获取全部题型正确率统计接口 GET /statistics/type-accuracy .hml
-    @GetMapping("/type-accuracy")
-    @SaCheckLogin
-    @Operation(summary = "获取全部题型正确率统计")
-    public BaseResponse<List<QuestionTypeStatVO>> getTypeAccuracy() {
-        List<QuestionTypeStatVO> list = statisticsService.getTypeAccuracy();
-        return ResultUtils.success(list);
-    }
-
-    // 获取指定试卷的题型正确率统计接口 GET /statistics/paper/{paperId}/type-accuracy .hml
-    @GetMapping("/paper/{paperId}/type-accuracy")
-    @SaCheckLogin
-    @Operation(summary = "获取指定试卷的题型正确率统计")
-    public BaseResponse<List<QuestionTypeStatVO>> getPaperTypeAccuracy(@PathVariable Long paperId) {
-        List<QuestionTypeStatVO> list = statisticsService.getPaperTypeAccuracy(paperId);
-        return ResultUtils.success(list);
-    }
-
     @PostMapping("/papers-available")
     @SaCheckLogin
     @Operation(summary = "获取可统计的试卷列表")
