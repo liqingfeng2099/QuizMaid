@@ -14,6 +14,7 @@ import com.kanade.backend.model.excel.HighFreqWrongExcelData;
 import com.kanade.backend.model.excel.StatisticsExcelData;
 import com.kanade.backend.model.vo.HighFreqWrongQuestionVO;
 import com.kanade.backend.model.vo.PaperStatisticsVO;
+import com.kanade.backend.model.vo.QuestionTypeStatVO;
 import com.kanade.backend.model.vo.TrendDataPointVO;
 import com.kanade.backend.service.StatisticsService;
 import io.swagger.v3.oas.annotations.Operation;

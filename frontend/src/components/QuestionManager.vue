@@ -23,7 +23,7 @@
           </template>
         </a-input-search>
         <a-switch
-          v-model:checked="searchMode === 'fulltext'"
+          :checked="searchMode === 'fulltext'"
           @change="(v: boolean|string|number) => searchMode = v ? 'fulltext' : 'exact'"
           checked-children="ES"
           un-checked-children="普通"

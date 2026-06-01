@@ -318,7 +318,8 @@ const handleBatchReview = async (status: number) => {
 }
 
 // ===== 导出/预览 =====
-const previewVisible = ref(false); const previewHtml = ref('')
+const previewVisible = ref(false)
+const previewHtml = ref('')
 /** 剥离预览 HTML 中的 style/body/html 标签，防止污染外层页面样式 */
 function sanitizePreviewHtml(raw: string): string {
   let s = raw
@@ -345,8 +346,11 @@ const handleExportExcel = async () => {
 }
 
 // ===== 强化组卷 =====
-const showAssemblyModal = ref(false); const asmPaperName = ref('错题强化卷')
-const asmQuestionCount = ref(15); const asmDifficulty = ref<number|undefined>(2); const asmDuration = ref(45)
+const showAssemblyModal = ref(false)
+const asmPaperName = ref('错题强化卷')
+const asmQuestionCount = ref(15)
+const asmDifficulty = ref<number|undefined>(2)
+const asmDuration = ref(45)
 const assemblyLoading = ref(false)
 const handleAssembly = async () => {
   if (assemblyLoading.value) return
@@ -408,30 +412,20 @@ onUnmounted(() => { chartInstances.forEach(c=>c.dispose()) })
   font-size: 18px;
   margin-bottom: 16px;
 }
-
-// ===== 导出/预览 =====
-const previewVisible = ref(false); const previewHtml = ref('')
-const handlePreview = async () => {
-  try { const res = await previewErrorBook(); if (res.data.code===0) { previewHtml.value=res.data.data||''; previewVisible.value=true } } catch {}
+.preview-container :deep(.q-content) {
+  margin: 8px 0;
 }
-const handleExportExcel = async () => {
-  try { const res=await exportErrorBookExcel(); const b=new Blob([res.data as any]); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='错题集.csv'; a.click() } catch { message.error('导出失败') }
+.preview-container :deep(.q-answer) {
+  color: #52c41a;
+  margin-top: 4px;
 }
-
-// ===== 强化组卷 =====
-const showAssemblyModal = ref(false); const asmPaperName = ref('错题强化卷')
-const asmQuestionCount = ref(15); const asmDifficulty = ref<number|undefined>(2); const asmDuration = ref(45)
-const handleAssembly = async () => {
-  try {
-    const res = await reinforceAssemble({ paperName: asmPaperName.value, questionCount: asmQuestionCount.value, difficultyAvg: asmDifficulty.value, duration: asmDuration.value })
-    if (res.data.code === 0) { message.success('组卷成功！试卷ID: '+res.data.data?.id); showAssemblyModal.value=false }
-  } catch { message.error('组卷失败') }
+.preview-container :deep(.q-meta) {
+  color: #999;
+  font-size: 12px;
+  margin-top: 4px;
 }
-
-onMounted(() => { loadErrors() })
-onUnmounted(() => { chartInstances.forEach(c=>c.dispose()) })
-</script>
-
-<style scoped>
-.error-book-page { padding: 0; }
+.preview-container :deep(h2) {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
 </style>

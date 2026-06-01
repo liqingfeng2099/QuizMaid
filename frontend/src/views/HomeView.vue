@@ -47,17 +47,15 @@ const loadData = async () => {
       if (res.data.code === 0 && res.data.data) {
         const heatmapData: [string, number][] = res.data.data.map((item: API.UserHeatMapVO) => [
           item.date || '',
-          item.level || 0 // 使用 level 字段作为热力图等级
+          item.count || 0
         ])
         updateChart(heatmapData, currentYear)
       } else {
-        // 没有数据时显示空热力图
         updateChart([], currentYear)
       }
     }
   } catch (error) {
     console.error('加载热力图数据失败', error)
-    // 出错时显示空热力图
     const currentYear = new Date().getFullYear().toString()
     updateChart([], currentYear)
   }
@@ -99,7 +97,11 @@ const handleSignIn = async () => {
 
 const updateChart = (data: [string, number][], year: string) => {
   if (!myChart) return
-  
+
+  const counts = data.map(d => d[1])
+  const maxCount = counts.length > 0 ? Math.max(...counts) : 0
+  const visualMax = Math.max(maxCount, 1)
+
   const option: EChartsOption = {
     title: {
       top: 30,
@@ -108,28 +110,20 @@ const updateChart = (data: [string, number][], year: string) => {
     },
     tooltip: {
       position: 'top',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       formatter: function(params: any) {
         if (Array.isArray(params)) {
           params = params[0]
         }
-        return params.value[0] + '<br/>学习天数: ' + params.value[1]
+        return params.value[0] + '<br/>做题数: ' + params.value[1]
       }
     },
     visualMap: {
       min: 0,
-      max: 5,
+      max: visualMax,
       type: 'piecewise',
       orient: 'horizontal',
       left: 'center',
       top: 65,
-      pieces: [
-        { min: 1, max: 1, label: '1天', color: '#e6f7ff' },
-        { min: 2, max: 2, label: '2天', color: '#91d5ff' },
-        { min: 3, max: 3, label: '3天', color: '#40a9ff' },
-        { min: 4, max: 4, label: '4天', color: '#1890ff' },
-        { min: 5, label: '5+天', color: '#096dd9' }
-      ]
     },
     calendar: {
       top: 120,
@@ -148,7 +142,7 @@ const updateChart = (data: [string, number][], year: string) => {
       data: data,
     },
   }
-  
+
   myChart.setOption(option)
 }
 
@@ -160,14 +154,14 @@ healthCheck().then((res) => {
 <template>
   <div class="home-view">
     <h1>欢迎使用 AI 题库管理系统</h1>
-    
+
     <!-- 学习统计部分 -->
     <div class="stats-container">
       <a-card class="stats-card">
         <template #title>
           <div class="card-title">学习统计</div>
         </template>
-        
+
         <a-row :gutter="16" class="stats-row">
           <a-col :span="8">
             <a-statistic title="答题总数" :value="loginUserStore.loginUser.answerNum || 0" />
@@ -179,9 +173,9 @@ healthCheck().then((res) => {
             <a-statistic title="正确率" :value="correctRate" suffix="%" />
           </a-col>
         </a-row>
-        
+
         <a-divider />
-        
+
         <div class="sign-in-section">
           <div class="sign-in-header">
             <h3>签到记录</h3>
@@ -199,9 +193,9 @@ healthCheck().then((res) => {
             </a-col>
             <a-col :span="16">
               <div class="calendar-card">
-                <a-calendar 
-                  v-model:value="value" 
-                  :fullscreen="false" 
+                <a-calendar
+                  v-model:value="value"
+                  :fullscreen="false"
                   @panelChange="onPanelChange"
                   :showHeader="false"
                 >
@@ -219,7 +213,7 @@ healthCheck().then((res) => {
         </div>
       </a-card>
     </div>
-    
+
     <!-- 学习热力图 -->
     <div class="chart-container">
       <div ref="chartContainer" id="main" class="chart"></div>
